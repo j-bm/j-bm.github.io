@@ -1,0 +1,80 @@
+? Makefile-
+Index: Makefile
+===================================================================
+RCS file: /cvs/ports/lang/gcc/8/Makefile,v
+retrieving revision 1.21
+diff -u -p -r1.21 Makefile
+--- Makefile	11 Aug 2019 20:53:07 -0000	1.21
++++ Makefile	23 Aug 2019 16:54:51 -0000
+@@ -58,6 +58,7 @@ SHARED_LIBS =	estdc++		19.0 \
+ 		lto_plugin      5.0 \
+ 		itm		4.0 \
+ 		atomic		3.0 \
++		gomp		1.0 \
+ 		quadmath	3.0 \
+ 		cc1		1.0 \
+ 		cc1plugin	1.0 \
+@@ -133,13 +134,13 @@ MAKE_ENV += ${EXTRA_ENV}
+ 
+ CFLAGS = -O2 -g
+ 
++## disable=libgomp off
+ CONFIGURE_ARGS += \
+ 	--verbose \
+ 	--program-transform-name=s,^,e, \
+ 	--disable-nls  \
+ 	--with-system-zlib \
+ 	--disable-libmudflap \
+-	--disable-libgomp \
+ 	--disable-libssp \
+ 	--disable-tls \
+ 	--with-gnu-ld \
+Index: pkg/PLIST-f95
+===================================================================
+RCS file: /cvs/ports/lang/gcc/8/pkg/PLIST-f95,v
+retrieving revision 1.2
+diff -u -p -r1.2 PLIST-f95
+--- pkg/PLIST-f95	27 Apr 2019 21:26:35 -0000	1.2
++++ pkg/PLIST-f95	23 Aug 2019 16:54:51 -0000
+@@ -11,6 +11,9 @@ lib/gcc/${CONFIG}/${V}/finclude/
+ lib/gcc/${CONFIG}/${V}/finclude/ieee_arithmetic.mod
+ lib/gcc/${CONFIG}/${V}/finclude/ieee_exceptions.mod
+ lib/gcc/${CONFIG}/${V}/finclude/ieee_features.mod
++lib/gcc/${CONFIG}/${V}/finclude/omp_lib_kinds.mod
++lib/gcc/${CONFIG}/${V}/finclude/omp_lib.mod
++lib/gcc/${CONFIG}/${V}/finclude/omp_lib.h
+ lib/gcc/${CONFIG}/${V}/libcaf_single.a
+ lib/gcc/${CONFIG}/${V}/libcaf_single.la
+ lib/libgfortran.a
+Index: pkg/PLIST-libs
+===================================================================
+RCS file: /cvs/ports/lang/gcc/8/pkg/PLIST-libs,v
+retrieving revision 1.2
+diff -u -p -r1.2 PLIST-libs
+--- pkg/PLIST-libs	27 Apr 2019 21:26:35 -0000	1.2
++++ pkg/PLIST-libs	23 Aug 2019 16:54:51 -0000
+@@ -13,5 +13,9 @@ lib/libobjc.la
+ @lib lib/libobjc.so.${LIBobjc_VERSION}
+ lib/libcc1.la
+ @lib lib/libcc1.so.${LIBcc1_VERSION}
++lib/libgomp.la
++@lib lib/libgomp.so.${LIBgomp_VERSION}
++lib/libgomp.a
++lib/libgomp.spec
+ %%ITM%%
+ %%QUADMATH%%
+Index: pkg/PLIST-main
+===================================================================
+RCS file: /cvs/ports/lang/gcc/8/pkg/PLIST-main,v
+retrieving revision 1.2
+diff -u -p -r1.2 PLIST-main
+--- pkg/PLIST-main	27 Apr 2019 21:26:35 -0000	1.2
++++ pkg/PLIST-main	23 Aug 2019 16:54:51 -0000
+@@ -29,6 +29,7 @@ lib/gcc/${CONFIG}/${V}/include-fixed/REA
+ lib/gcc/${CONFIG}/${V}/include-fixed/limits.h
+ lib/gcc/${CONFIG}/${V}/include-fixed/syslimits.h
+ lib/gcc/${CONFIG}/${V}/include/gcov.h
++lib/gcc/${CONFIG}/${V}/include/omp.h
+ lib/gcc/${CONFIG}/${V}/include/stdalign.h
+ lib/gcc/${CONFIG}/${V}/include/stdatomic.h
+ lib/gcc/${CONFIG}/${V}/include/stdfix.h

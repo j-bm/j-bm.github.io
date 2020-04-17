@@ -1,0 +1,177 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Numerics on OpenBSD - Parallel code</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+</head><body>
+<img src="media/krzysztof-kowalik-aVMwwQU72Eo-unsplash-3.jpg" title="Dual-core airplane" alt="Dual-core airplane" /></p>
+
+<h1>Numerics on OpenBSD - Parallelization</h1>
+
+<h3>Making compiled code work in parallel</h3>
+
+<p>OpenBSD supports symmetric multi-processors, SMP, commonly called multi-core
+CPUs.</p>
+
+<p>SMP-enabled programs can run multiple cores simultaneously, generating results
+sooner.  Amdahls' Law applies: any parallelized code that relies on
+results from non-parallel code is ultimately limited by the speed
+of the non-parallel part.</p>
+
+<p>POSIX-compatible threading libraries are included in OpenBSD, if you have
+code (like fftw) that can use it.</p>
+
+<p>You can add non-supported OpenMP libraries to your OpenBSD system.  OpenMP
+allows you to put simple directives (called pragmas) in your
+source C/C++/Fortran code
+to run relevant parts in parallel on the multiple cores of your hardware.</p>
+
+<p>Other features such as CUDA or other GPU-related add-on processors are
+not available.</p>
+
+<h3>Developing OpenMP code on OpenBSD without OpenMP libraries</h3>
+
+<p>Since the OpenMP runtime is not included in OpenBSD base or via ports, how can
+you develop code with the OpenMP pragmas?  The answer is: you need
+a &ldquo;stub&rdquo; runtime library that supports OpenMP programs but
+behaves as a single-core machine. Also, use the fact that the clang and GNU
+compilers support the <code>-fopenmp</code>
+switch, even if they don&rsquo;t include their respective runtime libraries.</p>
+
+<p>The stub library is included with the flang compiler; just install that from
+ports:</p>
+
+<pre><code>doas pkg_add flang
+</code></pre>
+
+<p>You can test with this:</p>
+
+<pre><code>cat &gt; testopenmp.c &lt;&lt; __end
+#include &lt;omp.h&gt;
+int main(void) {
+  return omp_get_num_threads();
+}
+__end
+
+cc -fopenmp -I/usr/local/include -L/usr/local/lib -lompstub testopenmp.c
+./a.out
+echo $?
+</code></pre>
+
+<p>and see an expected &ldquo;1&rdquo;.  (cc here refers to the default compiler, a.k.a.
+clang cc).</p>
+
+<p>With this library (or one you write yourself) you can write and partly
+debug OpenMP code for use
+on other operating systems.</p>
+
+<h3>OpenMP on OpenBSD</h3>
+
+<p>This is not currently supported in &ldquo;base&rdquo; or add-on packages; you will have
+to add this yourself.  For clang it&rsquo;s not hard.  For GCC it requires
+some time and resources (about 1500MB RAM and 6GB disk in /usr)
+to recompile your GCC compiler.  A procedure and patch are
+described below.</p>
+
+<p>Note: To do this, you should already be familiar with the OpenBSD ports
+system and
+making and compiling simple software ports.  This is not for beginners.
+Seek help if you need to.</p>
+
+<h4>OpenMP on OpenBSD for Clang compilers</h4>
+
+<p>To setup OpenMP with clang, we will create two new ports: one for the
+static runtime library and a second for the dynamic run-time.</p>
+
+<p>First download and extract the ports.tgz file as
+described in the
+<a href="https://www.openbsd.org/faq/ports/index.html" title="OpenBSD Porter's Handbook">OpenBSD Porter&rsquo;s Handbook</a>.  Use
+the file that matches your version of OpenBSD.</p>
+
+<p>Be sure to setup ports building under your own (or a purpose-made account) as
+described in the Handbook.  Check that /usr/cache, /usr/distfiles,
+/usr/obj and /usr/ports/ have
+suitable ownership and permissions.  Test by building the math/minisat
+package, which consists of a single download and a few simple compiles.</p>
+
+<p>We show how to build and install packages for both static and dynamic libraries.
+Select the correct downloads according to whether you are running 6.5 or
+6.6:</p>
+
+<p>For OpenBSD 6.5, fetch <a href="https:openmp800.tar.gz">this</a> and
+<a href="https:stlibomp800.tar.gz">that</a>.</p>
+
+<p>For OpenBSD 6.6, fetch <a href="https:openmp801.tar.gz">this</a> and
+<a href="https:stlibomp801.tar.gz">that</a>.</p>
+
+<p>(The two download versions match the clang compiler versions, respectively).</p>
+
+<p>The following examples are for OpenBSD 6.5.  For 6.6 the procedures vary slightly.</p>
+
+<p>Unpack these two into /usr/ports/mystuff/lang/.</p>
+
+<pre><code>sysctl kern.version
+## Verify OpenBSD 6.5
+cd /usr/ports/mystuff/
+tar xzf path/to/openmp800.tar.gz
+tar xzf path/to/stlibomp800.tar.gz
+</code></pre>
+
+<p>Verify the version 8.0.0 within the Makefile is correct then make it:</p>
+
+<pre><code>doas pkg_add bison metaauto ninja re2c unzip-- zip cmake
+doas pkg_add gmake git bash flang
+
+cd /usr/ports/mystuff/lang/stlibomp
+clang -v    (compare to V= within Makefile)
+vi Makefile
+make package
+doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/6.5/package/amd64/all \
+    pkg_add stlibomp
+
+cd /usr/ports/mystuff/lang/libomp
+clang -v    (compare to V= within Makefile)
+vi Makefile
+make package
+doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/6.5/package/amd64/all \
+    pkg_add libomp
+</code></pre>
+
+<p>(If you have problems, check file path, ownerships and o:rew permissions).</p>
+
+<p>Note: There is no support for this configuration.  Do not expect help
+from the misc@ or ports@ mailing lists, or from me.</p>
+
+<h4>OpenMP on OpenBSD for GNU Compilers</h4>
+
+<p>For GCC, you can patch the GCC ports files and rebuild GCC to create
+new package files for OpenMP.  (The patch adds .h and library
+files for OpenMP to the packages).  Use
+<a href="https:gcc830.patch" title="patch">this</a> patch file:</p>
+
+<pre><code>doas pkg_add bzip2 gmake libsigsegv libexecinfo m4 xz
+doas pkg_add help2man gmp libmpc libiconv gettext-runtime  metaauto 
+doas pkg_add bison autoconf--%2.69 automake--%1.16 mpfr
+
+cd /usr/ports/lang/gcc
+patch &lt; path/to/gcc830.patch
+env FLAVOR="no_ada" make package
+doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/6.5/package/amd64/all \
+    pkg_add -u gcc-libs gcc g95 g++
+</code></pre>
+
+<p>This recompiles the three packages gcclibs, gcc, g95, and installs them.</p>
+
+<p>Note: There is no support for this configuration.  Do not expect help
+from the misc@ or ports@ mailing lists, or from me.</p>
+
+<hr />
+
+<p><a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a> |
+ <a href="onp.html" title="OpenBSD Numerics - Parallelization
+">OpenBSD Numerics - Parallelization</a> <br>
+ <a href="onc.html" title="OpenBSD Numerics - Clusters">OpenBSD Numerics - Clusters</a> |
+ <a href="one.html" title="OpenBSD Numerics - Examples">OpenBSD Numerics - Examples</a> <br>
+ <a href="exp.html" title="OpenBSD Numerics - Experiences pages">OpenBSD Numerics - Experiences pages</a><br></p>
+
+<p></body></p>

@@ -1,0 +1,530 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Numerics on OpenBSD - Examples</title>
+<link rel="stylesheet" href="w3.css" media="screen"></p>
+
+<script src="https://cdn.jsdelivr.net/npm/vega@5.7.2"></script>
+
+
+<script src="https://cdn.jsdelivr.net/npm/vega-lite@4.0.0-beta.10"></script>
+
+
+<script src="https://cdn.jsdelivr.net/npm/vega-embed@5.1.3"></script>
+
+
+<p></head><body>
+<img src="media/thought-catalog-UK78i6vK3sc-unsplash-2.jpg" title="Working the Examples" alt="Working the Examples" /></p>
+
+<h1>Numerics on OpenBSD - Examples</h1>
+
+<h3>Comparing compiler settings across two CPUs</h3>
+
+<p>We try three programs across two CPUs across several compiler options.
+The purpose is to show the variety of possible results for various kinds
+of numerical program and options available to the user.</p>
+
+<p>The programs are</p>
+
+<ol>
+<li>Iterative heat distribution problem <code>heated_plate.f90</code></li>
+<li>Boost example chaotic system integrated with odeint <code>chaotic_system.cpp</code></li>
+<li>Boost example OpenMP use with odeint <code>phase_chain.cpp</code></li>
+</ol>
+
+
+<p>The compilers are Flang and clang C++.  We try various compile options such as</p>
+
+<ol>
+<li>no option &ndash; the default is little optimization</li>
+<li><code>-O3</code> or <code>-Ofast</code> &ndash; the likely choice for many people</li>
+<li><code>-fopenmp-simd</code> which enables the SSE and AVX instruction sets
+as well as OpenMP</li>
+<li><code>-march=penryn</code> or <code>-march=skylake</code> according to the CPUs I have on hand</li>
+<li><code>--static</code> to see if statically compiled code is indeed faster</li>
+</ol>
+
+
+<p>The hardware I have is an Intel 2-core E7400 Penryn and Intel 2-core
+i3 Skylake laptop.</p>
+
+<div id="vis"></div>
+
+
+<h4>Heated_Plate</h4>
+
+<p>The code solves a partial-differential equation for temperature across a plate.  The
+data and charts are for the flang compiler, version 8.0.1 on OpenBSD 6.6.</p>
+
+<div id="SkylakeHP" margin-bottom: 50px; style="width: 700px; "></div>
+
+
+
+
+<p><p>
+This chart shows the heated_plate example with OpenMP turned on
+for all cases.  The default setting is more than 2x slower than <code>-O3</code>.</p>
+
+<p>A few attempts at: SSE or AVX instructions didn&rsquo;t improve speed. The hpsimd
+program uses the simd pragma on a function performing the diff
+reduction step (abs(old-new)).  The release
+notes suggest this shouldn&rsquo;t do much.</p>
+
+<p>The biggest gain (from 28.9s) is with <code>-O3</code> (10.2s). The architecture-specific <code>-march=skylake</code> (10.2s) is not much different.
+These tests were run on the Skylake processor which is why the code for the older Penryn also works.</p>
+
+<div id="PenrynHP" margin-bottom: 50px; style="width: 700px; "></div>
+
+
+<p><p>
+This chart shows the heated_plate example with OpenMP turned on
+for all cases.  This older CPU (circa 2008) is not as fast as Skylake (circa 2015).</p>
+
+<p>The hp.simdavx, hp.o3skylake, hpsimd.simdavx programs fail due to illegal instructions
+(unsupported in this older CPU) and no results can be shown.</p>
+
+<h4>Chaotic System</h4>
+
+<p>This is a C++ code example from the Boost odeint library.
+The code identifies the Lyapunov exponents for the Lorenz equation.
+Data and chart are for the flang compiler, version 8.0.1 on OpenBSD 6.6.
+It uses the Boost &ldquo;odeint&rdquo; library in serial and simd mode.</p>
+
+<div id="SkylakeCS",  margin-bottom: 50px; style="width: 700px; "></div>
+
+
+<p>The program.(config) refers to configurations with no optimization (.x),
+simd, fast, fast with simd instructions, and two CPU-specific settings
+for Penryn and Skylake.</p>
+
+<p>The <code>-fast</code> option clearly has the most effect on performance, with the
+simd instruction set not doing much to help.  The Skylake
+cpu optimization improves times from 24-ish seconds down to 21.3 seconds
+when adding <code>-march=skylake</code>.  The Penryn code
+choice has a lesser effect.</p>
+
+<div id="PenrynCS" margin-bottom: 50px; style="width: 700px; "></div>
+
+
+<p>On Penryn, the <code>-Ofast</code> option makes a huge difference.  The fastest code
+(Penryn-specific) at 26.4s is about 0.7s better than simd+fast.  (As with
+heated_plate, the Skylake version does not work on a Penryn CPU.)</p>
+
+<h4>Phase Chain</h4>
+
+<p>The code calculates the motions of two coupled
+oscillators with the Boost odeint library.  This is also a C++ code
+and it is capable of running under OpenMP.</p>
+
+<div id="SkylakePC" margin-bottom: 50px; style="width: 700px; "></div>
+
+
+<p>I&rsquo;ve sorted the results in order of improvement (but not how I actually
+explored the options).  Here we also try the <code>--static</code> linking option as
+well as fast, simd, Penryn and Skylake optimizations.  The &ldquo;mp&rdquo; in the program
+name refers to using OpenMP parallelization as well.  See the Boost website
+for details of how odeint can be parallelized with OpenMP.</p>
+
+<p>Static linking has a visible effect even without optimizations (20.6s down
+to 17.8s) and with <code>-Ofast</code> (15.6s to 12.0s).  OpenMP does scale fairly
+well (12.0s to 7.9s) but obviously not 100% faster.</p>
+
+<p>The Skylake
+optimization is not significantly different than <code>-Ofast</code>.</p>
+
+<div id="PenrynPC" margin-bottom: 50px; style="width: 700px; "></div>
+
+
+<p>On Penryn the code is progressively faster as we change to static
+linking, <code>-Ofast</code> option, then both, then add OpenMP parallelization,
+then all three, then finally the Penryn CPU-specific code.</p>
+
+<p>I don&rsquo;t have an explanation for why the Penryn is significantly faster
+than the much newer Skylake.  Some speculations: clock correctness,
+Skylake security mitigations (Meltdown, Spectre), operations error (me).</p>
+
+<p><p></p>
+
+<script>
+
+    var SkylakeHP = {
+       $schema: 'https://vega.github.io/schema/vega-lite/v4.json',
+       title: { text: 'Heated_Plate elapsed time for Skylake CPU',
+           fontSize: 16 },
+       background: 'lightgrey',
+      data: {
+        values: [
+    { cpu: 'hp.x', e: 28.9078 },
+    { cpu: 'hp.x', e: 28.9251 },
+    { cpu: 'hp.x', e: 28.9528 },
+    { cpu: 'hp.x', e: 28.9552 },
+    { cpu: 'hp.x', e: 28.9603 },
+    { cpu: 'hp.o3x', e: 10.0452 },
+    { cpu: 'hp.o3x', e: 10.1020 },
+    { cpu: 'hp.o3x', e: 10.1899 },
+    { cpu: 'hp.o3x', e: 10.2857 },
+    { cpu: 'hp.o3x', e: 10.3428 },
+    { cpu: 'hp.simdavx', e: 14.0888 },
+    { cpu: 'hp.simdavx', e: 14.1089 },
+    { cpu: 'hp.simdavx', e: 14.1363 },
+    { cpu: 'hp.simdavx', e: 14.1830 },
+    { cpu: 'hp.simdavx', e: 14.1914 },
+    { cpu: 'hpsimd.simdsse41x', e: 14.3302 },
+    { cpu: 'hpsimd.simdsse41x', e: 14.3566 },
+    { cpu: 'hpsimd.simdsse41x', e: 14.3798 },
+    { cpu: 'hpsimd.simdsse41x', e: 14.3817 },
+    { cpu: 'hpsimd.simdsse41x', e: 14.4362 },
+    { cpu: 'hp.o3penrynx', e: 10.0186 },
+    { cpu: 'hp.o3penrynx', e: 10.0391 },
+    { cpu: 'hp.o3penrynx', e: 10.1376 },
+    { cpu: 'hp.o3penrynx', e: 10.1618 },
+    { cpu: 'hp.o3penrynx', e: 10.1884 },
+    { cpu: 'hp.o3skylakex', e: 10.0834 },
+    { cpu: 'hp.o3skylakex', e: 10.2018 },
+    { cpu: 'hp.o3skylakex', e: 10.2845 },
+    { cpu: 'hp.o3skylakex', e: 10.3619 },
+    { cpu: 'hp.o3skylakex', e: 10.3967 },
+    { cpu: 'hpsimd.simdavx', e: 14.2115 },
+    { cpu: 'hpsimd.simdavx', e: 14.2291 },
+    { cpu: 'hpsimd.simdavx', e: 14.2598 },
+    { cpu: 'hpsimd.simdavx', e: 14.2607 },
+    { cpu: 'hpsimd.simdavx', e: 14.2959 },
+    { cpu: 'hpsimd.simdsse41x', e: 14.3302 },
+    { cpu: 'hpsimd.simdsse41x', e: 14.3566 },
+    { cpu: 'hpsimd.simdsse41x', e: 14.3798 },
+    { cpu: 'hpsimd.simdsse41x', e: 14.3817 },
+    { cpu: 'hpsimd.simdsse41x', e: 14.4362 }
+      ]
+    },
+    width: 'container',
+    mark: 'tick',
+    encoding: {
+      y: {field: 'e', type: 'quantitative',
+          axis: { title: 'Elapsed time (s)'
+            }
+         },
+      x: {field: 'cpu', type: 'nominal', sort: null,
+          axis: { title: 'program.config'
+            }
+         }
+     }
+   };
+
+      vegaEmbed('#SkylakeHP', SkylakeHP);
+
+    var PenrynHP = {
+       $schema: 'https://vega.github.io/schema/vega-lite/v4.json',
+       title: { text: 'Heated_Plate elapsed time for Penryn CPU',
+           fontSize: 16 },
+       background: 'lightgrey',
+      data: {
+        values: [
+    { cpu: 'hp.x', e: 43.8062 },
+    { cpu: 'hp.x', e: 44.5332 },
+    { cpu: 'hp.x', e: 45.2060 },
+    { cpu: 'hp.x', e: 45.7242 },
+    { cpu: 'hp.x', e: 46.5604 },
+    { cpu: 'hp.o3x', e: 36.9069 },
+    { cpu: 'hp.o3x', e: 37.4272 },
+    { cpu: 'hp.o3x', e: 37.6771 },
+    { cpu: 'hp.o3x', e: 38.4699 },
+    { cpu: 'hp.o3x', e: 41.2129 },
+    { cpu: 'hp.simdsse41x', e: 40.9520 },
+    { cpu: 'hp.simdsse41x', e: 41.3940 },
+    { cpu: 'hp.simdsse41x', e: 41.8872 },
+    { cpu: 'hp.simdsse41x', e: 42.1948 },
+    { cpu: 'hp.simdsse41x', e: 42.4498 },
+    { cpu: 'hp.o3penrynx', e: 37.1377 },
+    { cpu: 'hp.o3penrynx', e: 38.2371 },
+    { cpu: 'hp.o3penrynx', e: 38.5372 },
+    { cpu: 'hp.o3penrynx', e: 39.6186 },
+    { cpu: 'hp.o3penrynx', e: 40.4504 },
+    { cpu: 'hpsimd.simdsse41x', e: 40.4761 },
+    { cpu: 'hpsimd.simdsse41x', e: 41.3817 },
+    { cpu: 'hpsimd.simdsse41x', e: 41.7731 },
+    { cpu: 'hpsimd.simdsse41x', e: 41.8733 },
+    { cpu: 'hpsimd.simdsse41x', e: 42.1073 }
+      ]
+    },
+    width: 'container',
+    mark: 'tick',
+    encoding: {
+      y: {field: 'e', type: 'quantitative',
+          axis: { title: 'Elapsed time (s)'
+            }
+         },
+      x: {field: 'cpu', type: 'nominal', sort: null,
+          axis: { title: 'program.config'
+            }
+         }
+     }
+   };
+
+   vegaEmbed('#PenrynHP', PenrynHP);
+
+    // Chaotic System
+
+    var SkylakeCS = {
+       $schema: 'https://vega.github.io/schema/vega-lite/v4.json',
+       title: { text: 'Chaotic System elapsed time for Skylake CPU',
+           fontSize: 16 },
+       background: 'lightgreen',
+      data: {
+        values: [
+    { cpu: 'cs.x', e: 225.36 },
+    { cpu: 'cs.x', e: 225.48 },
+    { cpu: 'cs.x', e: 225.83 },
+    { cpu: 'cs.x', e: 225.97 },
+    { cpu: 'cs.x', e: 229.51 },
+    { cpu: 'cs.simdx', e: 225.08 },
+    { cpu: 'cs.simdx', e: 225.11 },
+    { cpu: 'cs.simdx', e: 225.50 },
+    { cpu: 'cs.simdx', e: 225.51 },
+    { cpu: 'cs.simdx', e: 228.47 },
+    { cpu: 'cs.fastx', e: 24.636 },
+    { cpu: 'cs.fastx', e: 24.669 },
+    { cpu: 'cs.fastx', e: 24.683 },
+    { cpu: 'cs.fastx', e: 24.703 },
+    { cpu: 'cs.fastx', e: 24.710 },
+    { cpu: 'cs.simdfastx', e: 24.652 },
+    { cpu: 'cs.simdfastx', e: 24.660 },
+    { cpu: 'cs.simdfastx', e: 24.699 },
+    { cpu: 'cs.simdfastx', e: 24.702 },
+    { cpu: 'cs.simdfastx', e: 24.827 },
+    { cpu: 'cs.simdfastpenrynx', e: 22.006 },
+    { cpu: 'cs.simdfastpenrynx', e: 22.009 },
+    { cpu: 'cs.simdfastpenrynx', e: 22.016 },
+    { cpu: 'cs.simdfastpenrynx', e: 22.025 },
+    { cpu: 'cs.simdfastpenrynx', e: 22.046 },
+    { cpu: 'cs.simdfastskylakex', e: 21.383 },
+    { cpu: 'cs.simdfastskylakex', e: 21.384 },
+    { cpu: 'cs.simdfastskylakex', e: 21.392 },
+    { cpu: 'cs.simdfastskylakex', e: 21.426 },
+    { cpu: 'cs.simdfastskylakex', e: 21.574 }
+      ]
+    },
+    width: 'container',
+    mark: 'tick',
+    encoding: {
+      y: {field: 'e', type: 'quantitative',
+          axis: { title: 'Elapsed time (s)'
+            }
+         },
+      x: {field: 'cpu', type: 'nominal', sort: null,
+          axis: { title: 'program.config'
+            }
+         }
+     }
+   };
+
+   vegaEmbed('#SkylakeCS', SkylakeCS);
+
+
+    var PenrynCS = {
+       $schema: 'https://vega.github.io/schema/vega-lite/v4.json',
+       title: { text: 'Chaotic System elapsed time for Penryn CPU',
+           fontSize: 16 },
+       background: 'lightgreen',
+      data: {
+        values: [
+    { cpu: 'cs.x', e: 287.04 },
+    { cpu: 'cs.x', e: 287.25 },
+    { cpu: 'cs.x', e: 287.46 },
+    { cpu: 'cs.x', e: 287.47 },
+    { cpu: 'cs.x', e: 289.63 },
+    { cpu: 'cs.simdx', e: 286.95 },
+    { cpu: 'cs.simdx', e: 287.46 },
+    { cpu: 'cs.simdx', e: 287.85 },
+    { cpu: 'cs.simdx', e: 288.43 },
+    { cpu: 'cs.simdx', e: 292.86 },
+    { cpu: 'cs.fastx', e: 27.123 },
+    { cpu: 'cs.fastx', e: 27.123 },
+    { cpu: 'cs.fastx', e: 27.123 },
+    { cpu: 'cs.fastx', e: 27.124 },
+    { cpu: 'cs.fastx', e: 27.336 },
+    { cpu: 'cs.simdfastx', e: 27.120 },
+    { cpu: 'cs.simdfastx', e: 27.120 },
+    { cpu: 'cs.simdfastx', e: 27.127 },
+    { cpu: 'cs.simdfastx', e: 27.130 },
+    { cpu: 'cs.simdfastx', e: 27.130 },
+    { cpu: 'cs.simdfastpenrynx', e: 26.417 },
+    { cpu: 'cs.simdfastpenrynx', e: 26.422 },
+    { cpu: 'cs.simdfastpenrynx', e: 26.422 },
+    { cpu: 'cs.simdfastpenrynx', e: 26.424 },
+    { cpu: 'cs.simdfastpenrynx', e: 26.432 }
+
+      ]
+    },
+    width: 'container',
+    mark: 'tick',
+    encoding: {
+      y: {field: 'e', type: 'quantitative',
+          axis: { title: 'Elapsed time (s)'
+            }
+         },
+      x: {field: 'cpu', type: 'nominal', sort: null,
+          axis: { title: 'program.config'
+            }
+         }
+     }
+   };
+
+   vegaEmbed('#PenrynCS', PenrynCS);
+
+    // Phase Chain
+
+    var SkylakePC = {
+       $schema: 'https://vega.github.io/schema/vega-lite/v4.json',
+       title: { text: 'Phase Chain elapsed time for Skylake CPU',
+           fontSize: 16 },
+       background: 'lightblue',
+      data: {
+        values: [
+    { cpu: 'ph.x', e: 20.596 },
+    { cpu: 'ph.x', e: 20.597 },
+    { cpu: 'ph.x', e: 20.618 },
+    { cpu: 'ph.x', e: 20.635 },
+    { cpu: 'ph.x', e: 20.638 },
+    { cpu: 'ph.sx', e: 17.846 },
+    { cpu: 'ph.sx', e: 17.847 },
+    { cpu: 'ph.sx', e: 17.850 },
+    { cpu: 'ph.sx', e: 17.855 },
+    { cpu: 'ph.sx', e: 17.860 },
+    { cpu: 'ph.fastx', e: 15.625 },
+    { cpu: 'ph.fastx', e: 15.625 },
+    { cpu: 'ph.fastx', e: 15.626 },
+    { cpu: 'ph.fastx', e: 15.631 },
+    { cpu: 'ph.fastx', e: 15.638 },
+    { cpu: 'ph.fastsx', e: 12.064 },
+    { cpu: 'ph.fastsx', e: 12.067 },
+    { cpu: 'ph.fastsx', e: 12.068 },
+    { cpu: 'ph.fastsx', e: 12.068 },
+    { cpu: 'ph.fastsx', e: 12.070 },
+    { cpu: 'ph.fastmpx', e: 7.9403 },
+    { cpu: 'ph.fastmpx', e: 7.9405 },
+    { cpu: 'ph.fastmpx', e: 7.9444 },
+    { cpu: 'ph.fastmpx', e: 7.9498 },
+    { cpu: 'ph.fastmpx', e: 7.9503 },
+    { cpu: 'ph.fastmpsx', e: 6.1300 },
+    { cpu: 'ph.fastmpsx', e: 6.1375 },
+    { cpu: 'ph.fastmpsx', e: 6.1386 },
+    { cpu: 'ph.fastmpsx', e: 6.1400 },
+    { cpu: 'ph.fastmpsx', e: 6.1433 },
+    { cpu: 'ph.fastmppenrynsx', e: 6.1288 },
+    { cpu: 'ph.fastmppenrynsx', e: 6.1289 },
+    { cpu: 'ph.fastmppenrynsx', e: 6.1322 },
+    { cpu: 'ph.fastmppenrynsx', e: 6.1344 },
+    { cpu: 'ph.fastmppenrynsx', e: 6.1366 },
+    { cpu: 'ph.fastmpskylakesx', e: 6.1838 },
+    { cpu: 'ph.fastmpskylakesx', e: 6.1851 },
+    { cpu: 'ph.fastmpskylakesx', e: 6.1863 },
+    { cpu: 'ph.fastmpskylakesx', e: 6.1863 },
+    { cpu: 'ph.fastmpskylakesx', e: 6.1876 }
+          ]
+        },
+        width: 'container',
+    mark: 'tick',
+    encoding: {
+      y: {field: 'e', type: 'quantitative',
+          axis: { title: 'Elapsed time (s)'
+            }
+         },
+      x: {field: 'cpu', type: 'nominal', sort: null,
+          axis: { title: 'program.config'
+            }
+         }
+     }
+   };
+
+   vegaEmbed('#SkylakePC', SkylakePC);
+
+
+    var PenrynPC = {
+       $schema: 'https://vega.github.io/schema/vega-lite/v4.json',
+       title: { text: 'Phase Chain elapsed time for Penryn CPU',
+           fontSize: 16 },
+       background: 'lightblue',
+      data: {
+        values: [
+    { cpu: 'ph.x', e: 17.207 },
+    { cpu: 'ph.x', e: 17.217 },
+    { cpu: 'ph.x', e: 17.300 },
+    { cpu: 'ph.x', e: 17.333 },
+    { cpu: 'ph.x', e: 17.361 },
+    { cpu: 'ph.sx', e: 15.859 },
+    { cpu: 'ph.sx', e: 15.866 },
+    { cpu: 'ph.sx', e: 15.870 },
+    { cpu: 'ph.sx', e: 15.904 },
+    { cpu: 'ph.sx', e: 15.918 },
+    { cpu: 'ph.fastx', e: 11.099 },
+    { cpu: 'ph.fastx', e: 11.101 },
+    { cpu: 'ph.fastx', e: 11.102 },
+    { cpu: 'ph.fastx', e: 11.107 },
+    { cpu: 'ph.fastx', e: 11.132 },
+    { cpu: 'ph.fastsx', e: 9.0339 },
+    { cpu: 'ph.fastsx', e: 9.0357 },
+    { cpu: 'ph.fastsx', e: 9.0364 },
+    { cpu: 'ph.fastsx', e: 9.0371 },
+    { cpu: 'ph.fastsx', e: 9.0375 },
+    { cpu: 'ph.fastmpx', e: 5.7110 },
+    { cpu: 'ph.fastmpx', e: 5.7129 },
+    { cpu: 'ph.fastmpx', e: 5.7157 },
+    { cpu: 'ph.fastmpx', e: 5.7165 },
+    { cpu: 'ph.fastmpx', e: 5.7185 },
+    { cpu: 'ph.fastmpsx', e: 4.6843 },
+    { cpu: 'ph.fastmpsx', e: 4.6847 },
+    { cpu: 'ph.fastmpsx', e: 4.6868 },
+    { cpu: 'ph.fastmpsx', e: 4.6868 },
+    { cpu: 'ph.fastmpsx', e: 4.6894 },
+    { cpu: 'ph.fastmppenrynsx', e: 4.6813 },
+    { cpu: 'ph.fastmppenrynsx', e: 4.6839 },
+    { cpu: 'ph.fastmppenrynsx', e: 4.6851 },
+    { cpu: 'ph.fastmppenrynsx', e: 4.6855 },
+    { cpu: 'ph.fastmppenrynsx', e: 4.6874 }
+      ]
+    },
+    width: 'container',
+    mark: 'tick',
+    encoding: {
+      y: {field: 'e', type: 'quantitative',
+          axis: { title: 'Elapsed time (s)'
+            }
+         },
+      x: {field: 'cpu', type: 'nominal', sort: null,
+          axis: { title: 'program.config'
+            }
+         }
+     }
+   };
+
+   vegaEmbed('#PenrynPC', PenrynPC);
+
+
+</script>
+
+
+<p><br><br></p>
+
+<p>Notes:</p>
+
+<p><code>heated_plate.f90</code> is from <a href="https://people.sc.fsu.edu/~jburkardt/f_src/f_src.html" title="Source Codes in F90">Source Codes in F90</a>.</p>
+
+<p>The <code>heated_plate_simd.f90</code> code is composed by me from <code>heated_plate.f90</code>.  It
+uses a simd function (omp declare simd) to compute the max absolute difference
+between solutions.</p>
+
+<p><code>chaotic_system.cpp</code> and <code>phase_chain.cpp</code> are from the <a href="https://www.boost.org/doc/libs/1_66_0/libs/numeric/odeint/doc/html/index.html" title="Boost Odeint Library">Boost Odeint library</a>.</p>
+
+<p>They have been slightly modified by me to use the Boost auto_cpu_time function
+to report cpu and elapsed times at program completion.</p>
+
+<hr />
+
+<p><a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a> |
+ <a href="onp.html" title="OpenBSD Numerics - Parallelization
+">OpenBSD Numerics - Parallelization</a> <br>
+ <a href="onc.html" title="OpenBSD Numerics - Clusters">OpenBSD Numerics - Clusters</a> |
+ <a href="one.html" title="OpenBSD Numerics - Examples">OpenBSD Numerics - Examples</a> <br>
+ <a href="exp.html" title="OpenBSD Numerics - Experiences pages">OpenBSD Numerics - Experiences pages</a><br></p>
+
+<p></body></p>

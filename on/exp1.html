@@ -1,0 +1,310 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiences with Numerics on OpenBSD - 1 - RNG</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+</head>
+<body></p>
+
+<h1>Experiences with Numerics on OpenBSD - 1 - RNG</h1>
+
+<p>I was porting the CUBE cosmological simulation code and had decided to
+start at the beginning.  The Github repo had some demo / test code so
+it seemed the best way forward was to walk, not &ldquo;run&rdquo;, ha ha.</p>
+
+<p>RNG means Random Number Generators.</p>
+
+<p>FFT means (fast) Fourier Transform.  The FFTW3 library is one of the popular
+and well-tested FFT libraries around.</p>
+
+<p>This experience was a trip through debugging and hypothesizing about fftw3,
+compiling, testing, retesting, code-reading and more.</p>
+
+<h2>The fft and OpenMP-FFT testers</h2>
+
+<p>The cube_fft subdirectory had three F90 test programs, for testing FFTs
+and OpenMP and combinations.  Well, once you read the code there was
+no OpenMP in there.  But the code was doing 3-D FFTs on cubic arrays.</p>
+
+<p>So build (on OpenBSD 6.6, flang 8.0.1, fftw3 3.3.8, g95 8.3.0), using included
+build script, and discover g95 conflicts with flang over the location
+of mod files.  Move the files, report the bug, and switch to flang.</p>
+
+<pre><code>echo $p
+-I/usr/local/include -I/usr/local/include/flang -L/usr/local/lib
+echo $libf
+-lfftw3f
+
+flang -O3 -o testfft.x $p $libf -x f95 test.f90.orig
+./testfft.x
+...(snip)...
+ check results
+     NaN             NaN             NaN             NaN
+     NaN             NaN             NaN             NaN
+     NaN             NaN
+</code></pre>
+
+<p>Whoah there.  NaN from an FFT?  Shouldn&rsquo;t anything be allowed as input
+and therefore generate valid output?</p>
+
+<h2>GIGO thoughts</h2>
+
+<p>My first thought was gigo, that the input to the FFT was bad, hence the
+output was bad.  But how to test?</p>
+
+<pre><code>subroutine checknan(d,ng)
+    implicit none
+    integer, intent(in) :: ng
+    real, intent(in) :: d(:,:,:)
+
+    integer i,j,k
+    outer1: do k = 1, ng
+    do j = 1, ng
+    do i = 1, ng
+        if(ieee_is_nan(den(i,j,k))) then
+           type *, ' nan at', i, j, k
+           exit outer1
+        end if
+    enddo
+    enddo
+    enddo outer1
+endsubroutine checknan
+</code></pre>
+
+<p>And run this before and after the FFT routine.  But no, only the output
+had NaN, the input was &ldquo;clean&rdquo;.</p>
+
+<p>So, count the NaNs:</p>
+
+<pre><code>subroutine checknan(d,ng)
+    implicit none
+    integer, intent(in) :: ng
+    real, intent(in) :: d(:,:,:)
+
+    integer i,j,k, nancount
+    nancount=0
+    outer1: do k = 1, ng
+    do j = 1, ng
+    do i = 1, ng
+        if(ieee_is_nan(den(i,j,k))) then
+           nancount = nancount + 1
+        end if
+    enddo
+    enddo
+    enddo outer1
+    if(nancount &gt; 0) then
+        print *,' nans found, ', nancount
+    end if
+endsubroutine checknan
+</code></pre>
+
+<p>And, as it turned out, there were lots:</p>
+
+<pre><code>  nans found,      14047232
+</code></pre>
+
+<p>Which was closely related to the array size (306 * 304 * 304),
+14047232 being (152 * 304 * 304).</p>
+
+<p>It makes sense.  FFT works by mixing lots of the numbers throughout the
+array with lots of arithmetic: a few invalid numbers could spread
+throughout the array.</p>
+
+<p>And, sometimes, only 14046624 elements were NaNs.  Huh again!</p>
+
+<h2>Input is only semi-good?</h2>
+
+<p>Reading the various manuals, I rediscovered the IEEE_ builtins, and the IEEE_IS_NORMAL
+function which tests for a number that is not denormalized, infinity, or NaN.</p>
+
+<p>But IS_NORMAL always counted 14047232 on the random numbers even when
+NaNs numbered 14046624.</p>
+
+<p>Back to the code again.</p>
+
+<h2>Read the code</h2>
+
+<p>There were two processes going on in this test code. Generate some artificial data
+using random numbers and an angle and log density function.  Then run
+FFT on the artificial data:</p>
+
+<pre><code>integer, parameter :: ng = 304
+real den(ng + 2, ng, ng)
+....
+call random_number(den(:ng, :, :))  !!! fill with random (0,1]
+....
+    temp_theta = 2*pi*den(i, j, k)
+    temp_r = sqrt(-2*log(1 - den(i + 1, j, k)))
+    den(i, j, k) = temp_r*cos(temp_theta)
+    den(i + 1, j, k) = temp_r*sin(temp_theta)
+...
+call sfftw_execute(plan_fft) ! forward transform
+...
+</code></pre>
+
+<p>Which, in words, is a weighted cosine and sine of a random angle.  The
+weight includes sqrt( negative * something ).  Which is a hint.  And the
+something is log(1 - something).  Another hint.</p>
+
+<p>Both sqrt and log are sensitive to
+values outside their valid domain: zero and positive for sqrt, and positive
+for log.</p>
+
+<p>The argument to log() is supposed to be positive
+since <code>den</code> is filled with
+random numbers strictly less than one.  According to the spec of <code>random_number</code>
+that is.</p>
+
+<p>So, count more badnesses (and include hexadecimal representation of the
+floating point number):</p>
+
+<pre><code>    if(nancount /= notnormalcount) then
+    outer3: do k = 1, ng
+    do j = 1, ng
+    do i = 1, ng
+        if((.not. ieee_is_nan   (den(i,j,k))) .and. &amp;
+           (.not. ieee_is_normal(den(i,j,k))) ) then
+           print '(A,3I5,F16.7,Z12)', ' unnormal ', i,j,k, &amp;
+             den(i,j,k), den(i,j,k)
+           exit outer3
+        end if
+    enddo
+    enddo
+    enddo outer3
+</code></pre>
+
+<p>and find this output when checking the sqrt(log()) expression:</p>
+
+<pre><code>unnormal     7  165  111            -Inf    FF800000
+</code></pre>
+
+<p>Which confirms the sqrt(log(0)) = negative infinity.  And the expression
+above, log(1-den) is in fact the source of the problem!</p>
+
+<p>Now we can check
+the random number generator (RNG):</p>
+
+<pre><code>subroutine checkrngone(d,ng)
+    implicit none
+    integer, intent(in) :: ng
+    real, intent(in) :: d(:,:,:)
+
+    integer i,j,k
+    outer1: do k = 1, ng
+    do j = 1, ng
+    do i = 1, ng
+        if(den(i,j,k) &gt;= 1.0) then
+           print '(A,3I5,F16.7,Z12)', ' snbone ', i,j,k, &amp;
+             den(i,j,k), den(i,j,k)
+           exit outer1
+        end if
+    enddo
+    enddo
+    enddo outer1
+</code></pre>
+
+<p>And run this test after filling the array with &ldquo;random numbers less than
+one&rdquo;.  And get a hit:</p>
+
+<pre><code>snbone    81   79  104       1.0000000    3F800000
+</code></pre>
+
+<p>Aha! But why?  Is there a bug in the runtime?</p>
+
+<p>Read the code for the flang runtime (runtime/flang/random3f.c):</p>
+
+<pre><code>...
+extern double drand48();
+
+double ENT3F(RANDOM, random)(void) { return drand48(); }
+...
+</code></pre>
+
+<p>Which is returning a double (real(8) for those of us who like it that way).</p>
+
+<p>Which means, go back to read the code:</p>
+
+<h2>Truth emerges</h2>
+
+<p>Remember this?</p>
+
+<pre><code>real den(ng + 2, ng, ng)
+....
+call random_number(den(:ng, :, :))  !!! fill with random (0,1]
+</code></pre>
+
+<p>What we were seeing, but didn&rsquo;t understand, was an implied</p>
+
+<pre><code>den = round_to_real4_number(real8_number)
+</code></pre>
+
+<p>Any real(8) value slightly less than 1.0D0 was rounded to the real(4)
+value 1.0E0.  Which was emphatically <em>not a bug</em>, because it is the standard
+way for Fortran conversion from real(8) to real(4).  It&rsquo;s not a bug
+in the flang
+runtime anyway.  But it is a bug in this test code.  So, to fix:</p>
+
+<pre><code>use ieee_arithmetic, only: ieee_is_nan, ieee_is_normal, &amp;
+  ieee_set_rounding_mode, ieee_round_type, ieee_to_zero
+...
+call ieee_set_rounding_mode(ieee_to_zero)
+...
+call random_number(den(:ng, :, :))
+call checkrngone(den, ng)
+...
+</code></pre>
+
+<p>And after a few hundred million random numbers are generated and tested,
+it seems to work.</p>
+
+<p>December 2019</p>
+
+<h2>Glossary</h2>
+
+<dl>
+
+    <dt>FFT<dd>Fast Fourier Transform, quickly obtaining the correlations of
+a signal with cosine and sine waves of progressive frequencies.  Reversible.
+Useful.
+    <dt>gigo<dd>Garbage-in produces Garbage-out.
+    <dt>IEEE<dd>Institute of Electrical and Electronics Engineers.  An
+international professional association which publishes standards and
+academic journals and organizes academic conferences. 
+A shorthand for the IEEE-754 standard.
+    <dt>NaN<dd>Not A Number.  A representation of concepts like 1.0/0.0, and yet
+which is not infinity.
+    <dt>RNG<dd>Random Number Generator.  Not really, these are pseudo-random.
+And the utility of most RNGs is improved by making them reproducible, especially
+if you are debugging numerical code.
+
+</dl>
+
+
+<p>Links:</p>
+
+<p><a href="https://www.fftw.org/" title="FFTW Home">FFTW home</a></p>
+
+<p><a href="https://github.com/flang-compiler/flang" title="Flang compiler source">Flang compiler source</a></p>
+
+<p><a href="https://ieee.org" title="IEEE.org ">IEEE.org </a></p>
+
+<p><a href="https://github.com/yuhaoran/cafproject" title="Hao-ran Yu's CUBE set">Hao-ran Yu&rsquo;s CUBE</a></p>
+
+<hr />
+
+<p> <a href="exp1.html" title="OpenBSD Numerics Experience - 1 - RNG">OpenBSD Numerics Experience - 1 - RNG</a>
+<br>
+ <a href="exp2.html" title="OpenBSD Numerics Experience - 2 - RNG floats">OpenBSD Numerics Experience - 2 - RNG floats</a>
+<br>
+ <a href="exp3.html" title="OpenBSD Numerics Experience - 3 - FFTW">OpenBSD Numerics Experience - 3 - FFTW</a>
+<br>
+ <a href="exp4.html" title="OpenBSD Numerics Experience - 4 - CAF">OpenBSD Numerics Experience - 4 - CAF</a>
+<br>
+ <a href="exp5.html" title="OpenBSD Numerics Experience - 5 - MPI Networking">OpenBSD Numerics Experience - 5 - MPI Networking</a>
+<br>
+ <a href="exp6.html" title="OpenBSD Numerics Experience - 6 - Memory Models">OpenBSD Numerics Experience - 6 - Memory Models</a>
+<br>
+<a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a>
+<br></p>
+
+<p></body></p>

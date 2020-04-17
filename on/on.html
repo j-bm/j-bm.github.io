@@ -1,0 +1,273 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Numerics on OpenBSD</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+</head>
+<body></p>
+
+<p><img src="media/banner-982162_1920-3.jpg" title="Mathematical display" alt="Mathematical display" /></p>
+
+<h1>Numerics on OpenBSD - Introduction</h1>
+
+<p>This is a short guide to using compilers and
+some scripting languages for numerical calculations on OpenBSD.</p>
+
+<p>Not all languages and scripts are included, mostly because I
+don&rsquo;t know about all of them.</p>
+
+<p>(This guide is valid for OpenBSD release 6.5 and 6.6 and should be
+considered obsolete after October 2020 unless updated.  It is
+mostly about the AMD64 and compatible platforms.)</p>
+
+<h2>OpenBSD as a numerical computation platform</h2>
+
+<p>This is not historically one of OpenBSD&rsquo;s reputational strengths.
+Mostly it is known for security and excellent documentation.</p>
+
+<p>Yet, many computational tools are available including recent releases:</p>
+
+<ul>
+<li>clang compiler, including C, C++ and Flang (Fortran)</li>
+<li>GNU C/C++ suite, also including Ada, Fortran, Objective-C</li>
+<li>Octave, a workalike to MATLAB</li>
+<li>Python including numpy, pandas, scikit-learn, scipy</li>
+<li>R, statistical tools</li>
+<li>Yorick scientific computing scripting language</li>
+<li>Z3 theorem prover (SAT, SMT, etc)</li>
+</ul>
+
+
+<p>It also has libraries such as boost, eigen, fftw, netcdf and others.</p>
+
+<p>Numerical computations are sometime used with OpenBSD
+as part of a larger system
+such as an embedded computer or, for example, a web service
+using machine-learning or
+statistical calculations.</p>
+
+<p>Some people use OpenBSD for development of numerical code or for calculating.</p>
+
+<h2>Compiled Languages</h2>
+
+<p>You can find numerical codes in all languages; here we focus on C/C++
+using clang and GNU tools.  We also describe a bit of Fortran.</p>
+
+<p>Clang is included in &ldquo;base&rdquo; on AMD64, meaning it comes with the operating system.
+GNU languages are added with packages, including C, C++, Fortran and others.</p>
+
+<p>Additional languages such as Forth, Go, Haskell, Ocaml and
+Rust are also available for various problems.  These are not covered here.</p>
+
+<h3>Making compiled code go faster</h3>
+
+<p>OpenBSD on the AMD 64-bit platform (which also supports the Intel emulations
+known as EMT64) is configured to support all compatible processors including
+older ones.  Newer processors have improved instruction sets,
+resulting in a variety of options for possibly gaining performance.</p>
+
+<p>By default, the compiler will not optimize for your particular CPU.  As
+a result, your code <em>might</em> go faster if you specify some
+compiler switches like <code>-Ofast</code> or <code>-O3</code>, or various loop-specific
+code-generation options.  Or not: you will have to experiment.</p>
+
+<p>CPU-model specific options are also available.  The easiest way
+is <code>-march=native</code>.</p>
+
+<h3>Static linking may improve speed</h3>
+
+<p>Most compiled code automatically produces dynamic-linked executables.  The
+executable file thus
+includes only the names of shared libraries (located in /usr/lib or
+/usr/local/lib).  This reduces disk space use and forces convergence of
+library file versions to the same version.  However it may be slower by up to 10%.</p>
+
+<p>Using the <code>--static</code> option in compiler commands, or referencing static
+object libraries for most code may help speed.  For example</p>
+
+<pre><code>libset="-I/usr/local/include -L/usr/local/lib"
+boostset="-lboost_timer -lboost_chrono -lboost_system"
+c++ -o test.x --static $libset $boostset test.cpp
+</code></pre>
+
+<p>This results in the essential parts of the three boost libraries (and default
+libraries) being
+included within
+the test.x executable.</p>
+
+<p>See <a href="one.html" title="OpenBSD Numerics - Examples">my examples</a>
+page for further information.</p>
+
+<h3>Arithmetic varies with optimization</h3>
+
+<p>AMD64 platforms use 80-bit floating-point
+arithmetic internally, and 64-bit arithmetic for
+double-precision values that are written
+to memory.  Some compile options (vector instructions like SSE3, AVX,
+fast-math) may change the conversion of 80-bit numbers or avoid them
+altogether.  Numerical results of calcuations with these options may
+therefore vary from calculations without these options.</p>
+
+<h3>Speed testing</h3>
+
+<p>Be careful when testing code changes or compiler changes for
+effectiveness when searching for faster programs.  Here are some brief
+suggestions:</p>
+
+<ol>
+<li>Don&rsquo;t believe the first run.  Use the median timing of 5 to 11 runs.</li>
+<li>Beware of data caching effects.  If the input data fits in memory then
+second and subsequent runs will not perform IO for it.  You can decide
+if you care about this.</li>
+<li>Be prepared to reproduce older tests &ndash; use software code management tools
+and record and label each change including (Makefile) compiler switches.</li>
+<li>Don&rsquo;t believe results from a virtual machine.  While it may indicate
+approximate speed, remember the VM is shared with other programs and code
+and the VM speed will vary from moment to moment.</li>
+<li>In my experience <code>-O3</code> is often the best optimization you can do,
+within a few percent.
+If more is needed, try <code>-march=&lt;cpumodel&gt;</code> especially for later models
+of Intel processors.  <code>-march=nosuchmodel</code> gives a list of possibilities.
+Also, try <code>-march=native -mcpu=native</code> on GCC compilers.</li>
+<li>Beware of optimizations breaking correctness.  Always compare
+results as well as elapsed times.</li>
+<li>Use well-known external libraries for standard functions
+like: array multiplication,
+differential equations, root finding, minimization, etc.  These will be
+more reliable (accurate, stable) and faster.</li>
+<li>You may want to record many facts about your system for each run. This
+helps fix problems or reproduce that &ldquo;magic run&rdquo; that is too fast to believe.
+Record things like: software versions, disk space, environment variables,
+temperatures, date and time, etc.</li>
+</ol>
+
+
+<h3>Mixing clang and GNU languages</h3>
+
+<p>You can use C and Fortran code compiled with either compiler
+together in the same executable.  We know this because code compiled
+with the GCC C compiler successfully links with the OpenBSD base (built
+with clang).</p>
+
+<p>C++ is not compatible across the two because the run-time libraries are
+not interchangeable.
+If you want to use C++ libraries from ports you have to use clang C++.</p>
+
+<p>If you need to use GNU C++ then you will have to compile any needed C++
+libraries with GNU C++ as well.  Examples are: boost, tbb, uuid.
+If COMPILER_LIBCXX is in
+the ports Makefile for that library, then that library
+uses clang C++ and would have to be built separately with GCC (or avoided).</p>
+
+<h2>Scripting Languages</h2>
+
+<p>Most numerically useful interpreted or scripting languages are available.</p>
+
+<p>Python 2.x is available but is deprecated; Python 3.x is available too. A
+number of python packages are available to be added as you need them.
+Python virtual environments work as well.</p>
+
+<h2>Tools</h2>
+
+<h3>Timing</h3>
+
+<p>Your shell (ksh) has a built-in &ldquo;time&rdquo; command; so does OpenBSD.  Both
+report user and system CPU time; <code>/usr/bin/time -l</code>
+also reports memory and IO.</p>
+
+<h3>Source Reformatting</h3>
+
+<p>See style(9) for the OpenBSD style guide.</p>
+
+<p>The
+<code>clang-format -style="{BasedOnStyle: Mozilla, IndentWidth: 4}"</code>
+command generates OpenBSD-like source
+from your ragged nasty C/C++ original.  Recommended.  See the manpage.</p>
+
+<p>For Fortran, try <code>fprettify</code> available for Python 3.x.  This program will
+change files in-place by default.  See <code>fprettify --help</code>.</p>
+
+<h3>Source Code management</h3>
+
+<p>A software SCM tool provides a reliable way of tracking minor and major code
+changes to your software.  You (and your teammates) record change events
+with the SCM tool
+as you create or test or revise code.  The SCM tracks differences at
+each event and
+can report on these.  The SCM can also reproduce older versions
+of files or sets of files, according to event ids, dates or named
+markers.</p>
+
+<p>Use one of: CVS (included with OpenBSD), git (or got), or Subversion.</p>
+
+<p>You can find lots of help online with a web search.</p>
+
+<h3>Testing</h3>
+
+<p>Numerical codes are difficult to test because of design issues
+(few or no subroutines or functions), numerical stability questions,
+lack of reference solutions for some problems, uncertain approximations
+or unknown assumptions.  It&rsquo;s not, however, impossible.  Attention
+to accuracy and precision informs the user in addition to the
+numerical results.</p>
+
+<blockquote><p>The purpose of computation is insight, not numbers.
+ &ndash;Hamming.</p></blockquote>
+
+<p>Test tools come in many shapes; here are some options:</p>
+
+<ol>
+<li>Coverage testing: using chosen input data the tool generates a report
+identifying which code segments were exercised, or not, by the test data.
+Unexercised code needs closer review, or further testing.</li>
+<li>Function testing: routines and functions can be exercised with
+selected parameters and results checked.  This focuses testing on
+individual routines.</li>
+<li>Static code examination: these tools report on lines of source code
+with problematic syntax such as &lsquo;==&rsquo; and &lsquo;=&rsquo; confusion; misspelled
+variables; unreachable code, and so on.</li>
+</ol>
+
+
+<p>Automated testing has additional benefits: it helps protect against
+bugs introduced by code changes (or compiler or operating system
+updates); it documents the tests for subsequent review; it
+serves as an educational tool for new programmers learning a
+large code base.</p>
+
+<h2>Glossary</h2>
+
+<dl>
+
+    <dt>AMD64<dd>The AMD Athlon-64 processors and subsequent products
+and extensions.  Intel EMT64 products are compatible.
+    <dt>Dynamic linking<dd>References to a software library are included
+in the executable file.  The file is therefore smaller; the library
+is found in one or two standard locations when the program is run. See ld(1).
+    <dt>Static linking<dd>Code from a software library is included in the
+executable file.  Contrast dynamic linking.
+    <dt>Security<dd>Often viewed as a combination of Confidentiality
+(preserving limited access to data, code, plans, or means); Integrity
+(ensuring data, code and documents remain uncorrupted); and Availability
+(ensuring the data and code are usable when needed.)
+
+
+</dl>
+
+
+<p>Links:</p>
+
+<p> <a href="https://www.openbsd.org/faq/ports/index.html" title="OpenBSD Porting FAQ">OpenBSD Porting FAQ</a></p>
+
+<p><a href="https://www.openbsd.org/faq/index.html" title="OpenBSD FAQ">OpenBSD FAQ</a></p>
+
+<hr />
+
+<p><a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a> |
+ <a href="onp.html" title="OpenBSD Numerics - Parallelization
+">OpenBSD Numerics - Parallelization</a> <br>
+ <a href="onc.html" title="OpenBSD Numerics - Clusters">OpenBSD Numerics - Clusters</a> |
+ <a href="one.html" title="OpenBSD Numerics - Examples">OpenBSD Numerics - Examples</a> <br>
+ <a href="exp.html" title="OpenBSD Numerics - Experiences pages">OpenBSD Numerics - Experiences pages</a><br></p>
+
+<p></body></p>

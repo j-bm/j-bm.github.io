@@ -1,0 +1,205 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiences with Numerics on OpenBSD - 5 - MPI Networking</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+</head>
+<body></p>
+
+<h1>Experiences with Numerics on OpenBSD - 5 - MPI Networking</h1>
+
+<p>Running some long-running programs with OpenMPI means at least</p>
+
+<ul>
+<li>system stability for days</li>
+<li>network throughput remains high</li>
+<li>concurrent network throughput works</li>
+</ul>
+
+
+<p>where &ldquo;system&rdquo; means the sum of the computers, wires, network switches,
+and anything that might affect perfomance.  Like absence of cosmic rays.</p>
+
+<p>CPU stability might mean that the clock speed stays high or that auto-tuning
+of CPU performance is switched off.  A sysctl called <code>hw.perfpolicy</code>
+controls auto-tuning and <code>hw.setperf=100</code> requests full speed.</p>
+
+<p>Concurrent network throughput accounts for a LAN switch that
+may not be fully wire-speed, so that one node-to-node throughput
+might be slower than throughput between another pair of nodes.</p>
+
+<p>Documentation for these items <em>might</em> be reassuring.  However, there
+is no substitute for testing, and especially testing an artificial
+benchmark with known and defined results will help develop or maintain confidence
+in the system.</p>
+
+<h3>Node to Node speed</h3>
+
+<p>OpenBSD includes the tcpbench utility with useful options like reporting
+intervals, test durations, and separation of duties into client and server.</p>
+
+<p>First, start servers on each node:</p>
+
+<pre><code>listn=4
+listH="dell1:1,dell2:1,dell3:1,dell4:1"
+mpirun -np $listn -H $listH tcpbench -s
+</code></pre>
+
+<p>Second, for each client, run against all four servers:</p>
+
+<pre><code>list="dell1 dell2 dell3 dell4"
+for h in $list ; do
+    for a in $list ; do
+        echo T11SERVER $h $a
+        mpirun -np 1 -H $h:1 tcpbench -t 7 $a
+    done
+done
+</code></pre>
+
+<p>The result is quite lengthy, but the gist of it is: node-to-node is 936Mb/s
+and node-to-same-node is 1050Mb/s.  YMMV.</p>
+
+<p>Another observation in the output: the first node-to-node measure is around 500
+to 700 Mb/s, followed by the rest at the full speed.</p>
+
+<p>Finally, the speeds are symmetric: node A to node B is the same speed as
+node B to node A.</p>
+
+<h3>Node to node stability</h3>
+
+<p>Well, 7 seconds isn&rsquo;t long.  Let&rsquo;s run for hours:</p>
+
+<pre><code>mpirun -np 1 -H $h:1 tcpbench -t 1000 -r 100 $a
+</code></pre>
+
+<p>That amounts to 16 node-to-node tests at 1000s each, or three+ hours.</p>
+
+<p>The <code>-r 100</code> was a mistake; it was intended to be 100s not 0.1s (always
+read the docs carefully!)  Reviewing the results showed throughputs of</p>
+
+<pre><code>elapsed_ms    mbps
+  100        323.078
+  200        322.614
+  300        322.035
+  400        322.846
+  500        609.666
+  600        723.189
+  701        712.068
+  801        720.525
+  901        721.220
+ 1001        877.025
+ 1101        937.030
+ 1201        937.261
+ and so on
+</code></pre>
+
+<p>This was unexpected.</p>
+
+<p>The same pattern was observed in all 12 node-to-other-node tests.</p>
+
+<p>If you are familiar with the internals of TCP, you will recognize
+a TCP &ldquo;slow-start&rdquo; algorithm in play.  To avoid congestion, TCP starts
+slowly and learns (with a simple feedback arrangement) to increase the throughput
+by adjusting the number of permitted packets in flight.</p>
+
+<p>But we know better!  There is no congestion in a LAN with a wire-speed
+switch in this experiment.</p>
+
+<p>Back to the purpose of the test: after 1000 or 1100ms, the throughput on
+all node-to-other-node measures stayed constant at high 936Mb/s or slightly
+higher.</p>
+
+<h3>Playing with sysctl</h3>
+
+<p>Well of course I know better, but let&rsquo;s experiment a bit anyways.  Some
+possibilities:</p>
+
+<ul>
+<li>inet.tcp.rfc3390 changes might worsen things: smaller initial buffer
+sizes should slow performance.</li>
+<li>the <code>tcpbench -B</code> option should affect performance with smaller or
+larger initial buffer sizes.</li>
+<li>NIC tuning</li>
+</ul>
+
+
+<p>As it turns out, smaller (or just different) buffer sizes with rfc3390
+set to 1 or 0 had no effect.  There was a lot of variability from
+test to test.  These were not repeatable: the same buffer size resulted
+in different intervals to the maximum throughput.  Sometimes 700ms
+and often 1100ms or 1200ms.</p>
+
+<p>Changing the -B option in a range from 5k to 512k resulted in
+widely varying results
+that were not repeatable.  Sometimes the throughput reached the
+maximum within 600ms, sometimes within 1500ms.  The method was</p>
+
+<pre><code>for a in `jot - 5 32` `jot - 40 128 8` `jot - 160 512 32` ; do
+   echo -n buffer is $a kB
+   tcpbench -t 2 -r 100 -B $(( $a * 1024 )) dell2 |
+      awk '1*$3 &gt; 937 &amp;&amp; NF==4'  | head -1
+done
+</code></pre>
+
+<p>See the histogram.  Adjusting buffer sizes had no effect; the histograms
+all look the same.</p>
+
+<p><img src="media/nettest-72kB-histogram.png" title="Histogram of time to full speed" alt="Histogram of time to full speed" /></p>
+
+<p>There is nothing to be adjusted for NIC tuning; setting MTU up to 9200 bytes
+is not possible on my LAN as I have machines stuck at 1500 bytes on the same
+subnet.</p>
+
+<h3>Conclusion</h3>
+
+<p>The TCP slow-start seems to be socket-specific; there is no internal
+memory or history of
+what suitable internal TCP timers and buffers are good for node-to-node communications.</p>
+
+<p>The other conclusion I draw: don&rsquo;t reopen sockets; reuse the same ones over and
+over.  Fortunately this is what OpenMPI does.</p>
+
+<p>February 2020</p>
+
+<h2>Glossary</h2>
+
+<dl>
+    <dt>Actual Benchmark<dd>Code plus standardized inputs that produces
+results equivalent to usable results.  Results are compared for correctness
+and elapsed time for stability measurements (same system, different days)
+or performance comparisons (different systems, same day).
+    <dt>Artificial Benchmark<dd>Code that produces results for entertainment
+purposes.
+    <dt>NIC<dd>Network interface card.
+    <dt>TCP<dd>Transmission Control Protocol, a reliable stream of bytes
+is delivered in spite of packet losses, delays or corruption.  The tradeoffs
+for such reliability is the topic of this note.
+    <dt>YMMV<dd>Your mileage may vary, a standard caveat for benchmark results.
+</dl>
+
+
+<p>Links:</p>
+
+<p><a href="https://tools.ietf.org/html/rfc3390" title="RFC 3390 Increasing TCP's Initial Window">RFC 3390 Increasing TCP&rsquo;s Initial Window</a>
+<br>
+<a href="https://tools.ietf.org/html/rfc5681" title="RFC 5681 TCP Congestion Control">RFC 5681 TCP Congestion Control</a>
+<br></p>
+
+<hr />
+
+<p> <a href="exp1.html" title="OpenBSD Numerics Experience - 1 - RNG">OpenBSD Numerics Experience - 1 - RNG</a>
+<br>
+ <a href="exp2.html" title="OpenBSD Numerics Experience - 2 - RNG floats">OpenBSD Numerics Experience - 2 - RNG floats</a>
+<br>
+ <a href="exp3.html" title="OpenBSD Numerics Experience - 3 - FFTW">OpenBSD Numerics Experience - 3 - FFTW</a>
+<br>
+ <a href="exp4.html" title="OpenBSD Numerics Experience - 4 - CAF">OpenBSD Numerics Experience - 4 - CAF</a>
+<br>
+ <a href="exp5.html" title="OpenBSD Numerics Experience - 5 - MPI Networking">OpenBSD Numerics Experience - 5 - MPI Networking</a>
+<br>
+ <a href="exp6.html" title="OpenBSD Numerics Experience - 6 - Memory Models">OpenBSD Numerics Experience - 6 - Memory Models</a>
+<br>
+<a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a>
+<br></p>
+
+<p></body></p>

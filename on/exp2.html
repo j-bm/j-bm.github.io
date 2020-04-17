@@ -1,0 +1,281 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiences with Numerics on OpenBSD - 2 - RNG floats</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+</head>
+<body></p>
+
+<h1>Experiences with Numerics on OpenBSD - 2 - RNG floats</h1>
+
+<p>After last experience (), I decided to explore the deep, wide and
+dangerous ocean of the random-number generation world, with
+floating-point representations added for flavour.</p>
+
+<p>There are many subleties involved; the number of academics doing
+detailed stuff here is a good indication that there are many
+ways to do things and some of them are just plain wrong.  And some
+are just plain good.</p>
+
+<h3>The Plan</h3>
+
+<p>(No, not <a href="https://www.youtube.com/watch?v=L91-y4zVSk0" title="The Plan">The Plan</a>)</p>
+
+<p>I would do stuff in C, and apply an F95 adaptation layer afterwards.
+This is because much of the bit-twiddling is easier or even just possible
+in C and not Fortran.  Fortran only needs to be able to call this stuff.</p>
+
+<p>Also, at this point I&rsquo;m doing integration of the CUBEnu code.  Which means
+testing components while checking that they connect correctly (such
+as accepting and computing valid values, adding or doing
+assumptions testing, some basic
+performance testing, and so on.)  Therefore, some testing of the RNGs
+is required too.</p>
+
+<p>Flang (at least) uses the default rand48() code base. The
+drand48() source code revealed some old, odd choices in generating pseudo-
+random numbers.  Newer stuff exists, which I remember seeing occasionally.  So
+a web-search engine approach to finding better code than drand48/rand48
+would seem obviously the better choice than accepting the (clang/flang/gcc)
+status quo.</p>
+
+<p>Of course this plan is written backwards.</p>
+
+<h3>Web Search</h3>
+
+<p>Starting with Hacker News, I found several references to PCG, and thence
+the PCG website.  I explored the fascinating worlds of numerous
+PRNG codes, including the testing, definitions of &ldquo;random&rdquo;, and so on.</p>
+
+<p>Factoids that testing runs for <em>a month</em> on modern hardware were actually
+fascinating.  Really!</p>
+
+<p>Then, hunt for floating point conversions (both single and double).  On Page
+4 of Yahoo search, find the relevent references (Lemire, Occil) and thence
+to the listed Campbell and Downey codes.</p>
+
+<p>OK, so I download the pcg-c-basic-0.9.zip and got it running.</p>
+
+<p>I then got distracted trying to write a Fortran 2003 module.  This
+meant fighting Fortran 2003 ideas of &ldquo;pure&rdquo; functions and the contrast with
+PRNGs which have side-effects by definition.  Eventually I developed an
+F2003-compatible module that successfully calls PCG routines.</p>
+
+<p>It also works under the GCC Fortran Co-Array Fortran language
+system, which is a bit mind-bending itself.  But I get ahead of myself here.</p>
+
+<p>OK, enough fun/distraction.  Let&rsquo;s write a test code, and see
+if some assumptions hold and which things are faster.</p>
+
+<h3>Test the float/double/real/IEEE-754 methods</h3>
+
+<p>Since this is OpenBSD, we will start with arc4random(). Then, use both the
+Campbell and Downey methods to convert random bit patterns to
+REAL(4) and REAL(8).  We also count
+the occurences of 0.0 and 1.0 (hopefully seeing no results of 1.0).</p>
+
+<p>Also, use #ifdef to select the PCG method as it includes the capability to be
+reproducible.  This is important for debugging, reproducibility, and
+reliability testing.  The same code will compile either with PCG or arc4random.</p>
+
+<p>(The following describes the resulting code. I&rsquo;ve omitted the various
+missteps and outcome variants that I made in the meantime.  Including
+discovering that the Downey code was for SPARC, then a big-endian machine.)</p>
+
+<p>The Campbell code uses <code>random64()</code> as the source of random numbers, so I
+adopt that for this test program.  Then adjust for arc4random:</p>
+
+<pre><code>#ifdef ARC4
+uint64_t
+random64(void) {
+    uint64_t x;
+    arc4random_buf(&amp;x, 8);
+    return(x);
+}
+#endif
+</code></pre>
+
+<p>and for the PCG code:</p>
+
+<pre><code>#ifdef PCG
+uint64_t
+random64(void) {
+    static int pcginitialized = 0;
+    if (!pcginitialized) {
+        pcg32_srandom( arc4random(), arc4random() );
+        pcginitialized = 1;
+    }
+    return (((uint64_t)pcg32_random() &lt;&lt; 32) + (uint64_t)pcg32_random() );
+}
+#endif
+</code></pre>
+
+<p>Similarly the Downey code uses <code>random()</code> so adjust similarly:</p>
+
+<pre><code>#ifdef PCG
+long
+random(void) {
+    static int pcginitialized = 0;
+    if (!pcginitialized) {
+        pcg32_srandom( arc4random(), arc4random() );
+        pcginitialized = 1;
+    }
+    return pcg32_random();
+}
+#endif
+</code></pre>
+
+<p>(random() is arc4random by default on OpenBSD so a separate ARC4 code
+fragment is not needed.)</p>
+
+<p>The test code is then a series of fragments that calculate a large number
+(like 10 billion) of pseudo-random floating-point numbers using
+both the Downey and Campbell methods.  We also count the zeros and ones:</p>
+
+<pre><code>startclock(&amp;btime);
+nZeros = nOnes = 0;
+
+for (j=0; j&lt; NLOOP; j++)
+    for (i=0; i&lt; NTEST; i++) {
+        rcandidate = random_real_64(); !! substitute functions here
+        if(rcandidate == 0) nZeros++;
+        if(rcandidate == 1.0) nOnes++;
+    }
+stopclock(&amp;btime, &amp;timeperrand);
+
+printf( REPORT, argv[0], "random_real_64",
+      nZeros, nOnes, 1e9 * timeperrand, 1e-6 / timeperrand );
+</code></pre>
+
+<p>And get this kind of result:</p>
+
+<pre><code>./test_rrng.xpcg my_random_float2 zeros 0 ones 0 time_ns  33.25 rate_M  30.08
+</code></pre>
+
+<p>and</p>
+
+<pre><code>./test_rrng.xarc4 random_real zeros 0 ones 0 time_ns 372.63 rate_M   2.68
+</code></pre>
+
+<p>This shows the two extremes: the Downey &ldquo;my_random_float2&rdquo; based on PCG is
+much quicker (30 million per second) than the Campbell &ldquo;random_real&rdquo;
+based on Arc4random (2 million per second).  This is on my old Penryn.</p>
+
+<h3>Write a module</h3>
+
+<p>Now that we have a fairly fast combination of code swiped from the web,
+let&rsquo;s integrate it into a package.  Let&rsquo;s use the pcg_basic routines as
+a model:</p>
+
+<pre><code>...
+// pcg32_random()
+// pcg32_random_r(rng)
+//     Generate a uniformly distributed 32-bit random number
+
+uint32_t pcg32_random(void);
+uint32_t pcg32_random_r(pcg32_random_t rng);
+...
+</code></pre>
+
+<p>So, add our own (fortran-ish) spellings of the O'Neill/Downey method:</p>
+
+<pre><code>// Downey method for float/double a.k.a. real(4)/real(8)
+// od_random_r4()
+// od_random_r4_r(rng)
+// od_random_r8()
+// od_random_r8_r(rng)
+
+   float  od_random_r4(void);
+   float  od_random_r4_r(pcg32_random_t rng);
+   double od_random_r8(void);
+   double od_random_r8_r(pcg32_random_t rng);
+</code></pre>
+
+<p>And a set of f90 files declaring the C-interface to these.
+They look like this:</p>
+
+<pre><code>subroutine pcg32_srandom(initstate, initseq) bind(c)
+    use iso_c_binding
+    implicit none
+    integer(C_INT64_T), value :: initstate
+    integer(C_INT64_T), value :: initseq
+end subroutine pcg32_srandom
+</code></pre>
+
+<p>&hellip;and so on.</p>
+
+<p>This will all be available on github eventually.</p>
+
+<h3>Update</h3>
+
+<p>After the endian-ness crises, where I had to rewrite the bit twiddling
+bits for Downey, I was led to the notion of calculating [1,2) and
+subtracting 1.  The link given in StackOverflow was
+<a href="https://stackoverflow.com/questions/5015133/generating-random-floating-point-values-based-on-random-bit-stream" title="stackoverflow 5015133">stackoverflow 5015133</a> which led
+to LD Crocker&rsquo;s ojrandlib.  See the links below.</p>
+
+<p>That too is added to my lib in my own versions for r4 and r8.</p>
+
+<p>Note that this method is much less random at small values, such as less than 0.01
+or less than 0.001.  By &ldquo;less random&rdquo; I mean the mantissa has trailing zeros
+for small numbers.  Which of course is not random.  A small value might be
+1.1920929e-07, which is 0x1p-23 or 1 &ldquo;on&rdquo; bit and 23 &ldquo;off&rdquo; bits.</p>
+
+<p>The od_ routine small value might be 2.3952118e-10 or 0x1.075b38p-32,
+which clearly has more than one bit in the mantissa.  Neither method
+has issues with larger numbers near 1.0.</p>
+
+<p>Another thing to note: the od_ routines never produce 0.0.  If you expect
+that you should see 0.0, prepare to be disappointed.  Read the code and
+explain why it is possible but not observed.</p>
+
+<p>December 2019<br>
+GH Mumm Cordon Rouge</p>
+
+<h2>Glossary</h2>
+
+<dl>
+    <dt>arc4random<dd>A replacement call for random, a high-quality
+non-reproducible source of random unsigned 32-bit numbers.
+    <dt>Integration<dd>Assembly of components and verification of the correct
+workings of the combination.  Assumes, for example, that components are
+already tested in unit-level or component-level tests.
+    <dt>Verification<dd>A procedure to confirm that a system or assembly meets
+a defined set of requirements, usually through formal testing.
+</dl>
+
+
+<p>Links</p>
+
+<p><a href="https://mumble.net/~campbell/2014/04/28/uniform-random-float" title="Uniform Random Floats: How to generate...">Taylor Campbell - Uniform Random Floats</a></p>
+
+<p><a href="http://github.com/lcrocker/ojrandlib%0ALee%20Daniel%20Crocker%20-%20ojrandlib" title="">Lee Daniel Crocker - ojrandlib</a></p>
+
+<p><a href="http://allendowney.com/research/rand/" title="Generating Pseudo-random Floating-Point Values">Allen B Downey - Generating Pseudo-random&hellip;</a></p>
+
+<p><a href="https://lemire.me/blog/2017/02/28/how-many-floating-point-numbers-are-in-the-interval-01/" title="How many floating-point numbers are in the interval [0,1]?">Daniel Lemire - How many floating-point numbers&hellip;</a></p>
+
+<p><a href="https://peteroupc.github.io/randomfunc.html" title="Random Number
+Generation and Sampling Methods">Peter Occil - Random Number Generation&hellip;</a></p>
+
+<p><a href="http://www.pcg-random.org/blog/" title="PCG, A
+Better Random Number Generator">Melissa O'Neill - PCG, A Better Random Number Generator</a></p>
+
+<hr />
+
+<p> <a href="exp1.html" title="OpenBSD Numerics Experience - 1 - RNG">OpenBSD Numerics Experience - 1 - RNG</a>
+<br>
+ <a href="exp2.html" title="OpenBSD Numerics Experience - 2 - RNG floats">OpenBSD Numerics Experience - 2 - RNG floats</a>
+<br>
+ <a href="exp3.html" title="OpenBSD Numerics Experience - 3 - FFTW">OpenBSD Numerics Experience - 3 - FFTW</a>
+<br>
+ <a href="exp4.html" title="OpenBSD Numerics Experience - 4 - CAF">OpenBSD Numerics Experience - 4 - CAF</a>
+<br>
+ <a href="exp5.html" title="OpenBSD Numerics Experience - 5 - MPI Networking">OpenBSD Numerics Experience - 5 - MPI Networking</a>
+<br>
+ <a href="exp6.html" title="OpenBSD Numerics Experience - 6 - Memory Models">OpenBSD Numerics Experience - 6 - Memory Models</a>
+<br>
+<a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a>
+<br></p>
+
+<p></body></p>

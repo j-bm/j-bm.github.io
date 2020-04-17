@@ -1,0 +1,137 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiences with Numerics on OpenBSD - 3 - FFTW</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+</head>
+<body></p>
+
+<h1>Experiences with Numerics on OpenBSD - 3 - FFTW</h1>
+
+<p>The Fast Fourier Transform, FFT, and various incarnations
+including the popular FFTW3 library are well known in the
+signal-processing business.  And, since just about
+everybody processes signals as a lifestyle, it&rsquo;s a good thing
+to know it well.</p>
+
+<p>The CUBEnu code uses FFT for convolution: converting to frequency
+domain, running a windowing function
+on the frequency-domain data, then inverting the fourier transform
+back to the spatial domain.  The window function is just a sin().</p>
+
+<h3>Test the FFTW calling code</h3>
+
+<p>The code fragments call the planning and execution routines according
+to most of the recommendations in the documentation (FFTW version 3.3.7,
+October 2017).  A couple of issues remain: using the recommended
+Fortran routines ddtw_execute_dft, _r2c, etc.  And the routine names
+are slightly different for single-precision Fortran.</p>
+
+<p>One possible option is the unaligned-data flag, not currently used, and consequent
+complicated alignment-compatible allocation mechanism.  I didn&rsquo;t try that,
+at least not the Fortran version.
+See section 7.4 of the FFTW doc for details.</p>
+
+<h3>Building FFTW with CPU-specific options</h3>
+
+<p>So, totally abandoning the OpenBSD packages for a build-your-own approach
+is not a good idea.  But, if you absolutely positively need highest
+performance, this might be worth the trouble &ndash; which is mostly the
+issue of reproducing this build in a year or three from now when you no
+long remember how.</p>
+
+<p>Here is my method:</p>
+
+<pre><code>cd
+mkdir clang gcc src
+cd src
+ftp https://path.to.source.files.org/fftw-3.3.8.tar.gz
+tar xzf fftw-3.3.8.tar.gz
+
+cd fftw-3.3.8
+./configure --help
+./configure --quiet \
+            --prefix=$HOME/clang \
+            --disable-doc \
+            --enable-threads \
+            --enable-sse2 \
+            --enable-float \
+       CC=cc CFLAGS="-O3 -march=penryn" \
+       F77=flang
+gmake
+gmake check
+gmake install
+gmake clean
+</code></pre>
+
+<p>And repeat without <code>--enable-float</code>.</p>
+
+<p>For GCC, use <code>CC=egcc</code> and
+<code>CFLAGS="-O3 -march=core2 -mtune=core2"</code>.</p>
+
+<pre><code>./configure --quiet \
+            --prefix=$HOME/gcc \
+            --disable-doc \
+            --enable-threads \
+            --enable-sse2 \
+            --enable-float \
+       CC=egcc CFLAGS="-O3 -march=core2 -mtune=core2 " \
+       F77=egfortran
+gmake
+gmake check
+gmake install
+gmake clean
+</code></pre>
+
+<p>And another run without the <code>--enable-float</code>.</p>
+
+<p>In spite of all this work, the result is very close to the OpenBSD package
+results.  Custom compilation has no useful effect on Penryn (Core2).</p>
+
+<h3>Alignment</h3>
+
+<p>In OpenBSD, a malloc() for a large array usually results in a page-aligned
+allocation.  Just out of curiosity I tried a few 4-byte offsets from such a page-
+aligned pointer, and got a small (consistent, but small at 7%) slowdown.  Don&rsquo;t
+do that.</p>
+
+<p>The alignment option that FFTW3 documents works but is not faster, at least
+not on Penryn CPUs.</p>
+
+<p>January 2020</p>
+
+<h2>Glossary</h2>
+
+<dl>
+    <dt>convolution<dd>Calculating the response of a system to an input
+signal.  Here, in CUBEnu, a system is a narrow band filter (a bump similar to a sin()
+wave in the frequency domain).
+    <dt>FFT<dd>Fast Fourier Transform, quickly obtaining the correlations of
+a signal with cosine and sine waves of progressive frequencies.  Reversible.
+Useful.
+</dl>
+
+
+<p>Links</p>
+
+<p><a href="http://www.fftw.org/" title="FFTW Home Page">FFTW Home Page</a>
+<a href="http://www.dspguide.com/" title="The Scientist's and Engineer's Guide to Digital Signal Processing">Smith - The Scientist&rsquo;s and Engineer&rsquo;s Guide to Digital Signal Processing</a></p>
+
+<hr />
+
+<p> <a href="exp1.html" title="OpenBSD Numerics Experience - 1 - RNG">OpenBSD Numerics Experience - 1 - RNG</a>
+<br>
+ <a href="exp2.html" title="OpenBSD Numerics Experience - 2 - RNG floats">OpenBSD Numerics Experience - 2 - RNG floats</a>
+<br>
+ <a href="exp3.html" title="OpenBSD Numerics Experience - 3 - FFTW">OpenBSD Numerics Experience - 3 - FFTW</a>
+<br>
+ <a href="exp4.html" title="OpenBSD Numerics Experience - 4 - CAF">OpenBSD Numerics Experience - 4 - CAF</a>
+<br>
+ <a href="exp5.html" title="OpenBSD Numerics Experience - 5 - MPI Networking">OpenBSD Numerics Experience - 5 - MPI Networking</a>
+<br>
+ <a href="exp6.html" title="OpenBSD Numerics Experience - 6 - Memory Models">OpenBSD Numerics Experience - 6 - Memory Models</a>
+<br>
+<a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a>
+<br></p>
+
+<p></body></p>

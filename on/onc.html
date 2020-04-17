@@ -1,0 +1,233 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Numerics on OpenBSD - Clusters</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+</head><body>
+<img src="media/karla-car-58AiTToabyE-unsplash-3.jpg" title="Cluster of sailboats" alt="Cluster of sailboats" /></p>
+
+<h1>Numerics on OpenBSD - Clusters</h1>
+
+<h3>Making compiled code run across a cluster</h3>
+
+<p>Clusters allow solution of problems that don&rsquo;t fit in the memory
+of one machine, or don&rsquo;t provide sufficient solution speed from one machine.</p>
+
+<p>A cluster of OpenBSD machines would include access from all to a common
+filesystem (NFS), identical user accounts on all machines, and OpenMPI
+installed on each machine.  An important prerequisite is SSH access
+amongst the nodes.</p>
+
+<h3>OpenBSD and OpenMPI</h3>
+
+<p>The OpenMPI (MPI) libraries and runtime provides automated startup and management
+of the same program running on multiple computers.  This is single-program
+multiple-data (spmd) computing.  Each separate instance of the program
+is started on it&rsquo;s assigned computer to compute it&rsquo;s part of the result.</p>
+
+<p>The OpenMPI implementation of MPI is a supported port for OpenBSD.  We call it
+MPI to avoid confusion with other libraries (OpenMP, OpenMPT, etc).</p>
+
+<p>MPI is built with GCC compilers for C and Fortran.  You can also
+use the clang compiler with this MPI runtime, but not flang because the
+two compilers differ in handling of arrays (a datatype supported by MPI).</p>
+
+<p>GCC Fortran also support Co-Array Fortran, which is a higher-level language
+abstraction that uses MPI as a basis.   CAF support for a cluster
+requires an additional (unsupported) OpenCoarrays library to be installed.
+CAF support for a single machine is included in the GCC Fortran package.</p>
+
+<h4>OpenBSD and MPI on 6.6</h4>
+
+<p>OpenBSD version 6.6 includes OpenMPI version 4.0.1 in ports.  This version has
+a couple of issues:</p>
+
+<ol>
+<li>The &ldquo;vader&rdquo; communications library has a bug when finalizing that
+results in noisy (but irrelevent) segfaults when the program completes.</li>
+<li>The file-based data service used to coordinate nodes uses an
+unsupported pthreads call.  An alternative needs to be specified.</li>
+</ol>
+
+
+<p>These issues are fixed by defining these two symbols before using mpirun:</p>
+
+<pre><code>export OMPI_MCA_btl=self,tcp
+export PMIX_MCA_gds=hash
+</code></pre>
+
+<p>The OMPI_MCA_btl symbol is not needed for OpenMPI 4.0.2 or later.</p>
+
+<p>One other issue is</p>
+
+<ol>
+<li>With GCC Fortran (egfortan compiler), a number of irrelevent symbol
+definition warnings are often issued at runtime. You may safely
+ignore these.</li>
+</ol>
+
+
+<h3>OpenBSD and MPI and OpenMP</h3>
+
+<p>The SMP capability of cluster members is accessible with OpenMP (as
+described here, and a reminder this is not supported).</p>
+
+<p>Cluster computing is accessible with MPI.  See our examples
+below.</p>
+
+<h4>MPI code example</h4>
+
+<pre><code>cat &gt; test1.c &lt;&lt; __end
+#include "mpi.h"
+#include &lt;stdio.h&gt;
+int
+main(void)
+{
+    int rank, size;
+
+    MPI_Init(NULL, NULL);
+    MPI_Comm_rank(MPI_COMM_WORLD, &amp;rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &amp;size);
+printf("Hello, world, I am %d of %d\n", rank, size);
+MPI_Finalize();
+
+return 0;
+}
+__end
+
+
+$ mpicc test1.c
+$ export PMIX_MCA_gds=hash
+$ mpirun -np 2 -H localhost:2 ./a.out
+Hello, world, I am 1 of 2
+Hello, world, I am 0 of 2
+</code></pre>
+
+<p>This proves simple MPI functioning.  For details on what is
+actually happening behind the scenes, add <code>--showme</code> to the mpicc
+command, or <code>--display-map</code> to the mpirun command.</p>
+
+<p>The PMIX_MCA_gds definition avoids a &ldquo;lazy binding failed&rdquo; error
+with the OpenMPI distributed database component &ldquo;gds&rdquo;.</p>
+
+<h4>MPI and OpenMP code example</h4>
+
+<pre><code>cat &gt; test2.c &lt;&lt; __end
+#include &lt;mpi.h&gt;
+#include &lt;omp.h&gt;
+#include &lt;stdio.h&gt;
+int
+main(void)
+{
+    int rank, size, nthreads, tot;
+    int a[100100], i;
+    tot = 0;
+
+    MPI_Init(NULL, NULL);
+    MPI_Comm_rank(MPI_COMM_WORLD, &amp;rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &amp;size);
+    nthreads = omp_get_max_threads();
+    if (rank &gt; 0) {
+        #pragma omp parallel for private(i) reduction(+ : tot)
+        for (i = 0; i &lt; 100100; i++) {
+            a[i] = 2 * i;
+            tot = tot + a[i];
+        }
+    } else {
+        tot = -1;
+    }
+    printf("Hello, world, I am %d of %d, threads %d, tot %d\n",
+       rank,
+       size,
+       nthreads,
+       tot);
+    MPI_Finalize();
+    return 0;
+}
+__end
+
+
+$ OMPI_CFLAGS=-fopenmp mpicc test2.c  -lomp
+$ OMP_NUM_THREADS=4 mpirun --np 3 -H localhost:3 a.out
+Hello, world, I am 0 of 3, threads 4, tot -1
+Hello, world, I am 2 of 3, threads 4, tot 1429975308
+Hello, world, I am 1 of 3, threads 4, tot 1429975308
+</code></pre>
+
+<p>This example shows a combination of OpenMP SMP (multithreading) calculating the
+array a and totalling it, and MPI running the same code several times.</p>
+
+<p>The OMPI_CFLAGS variable is needed to specify <code>-fopenmp</code> otherwise compiler
+errors occur.  This is direction to MPI at the compile step.</p>
+
+<p>The OMP_NUM_THREADS variable selects the number of active threads (the default
+is the current number of CPUs on the platform).  This is direction to OpenMP
+at runtime.</p>
+
+<p>I leave it as an exercise for the reader to add an MPI reduction on the
+&ldquo;size&rdquo; copies of tot.</p>
+
+<h3>When to MPI?</h3>
+
+<p>The main issue with MPI is networking:  it is slow.  A 1Gbit/s Ethernet
+can move about 15M double-precision floats per second.  Memory bandwidth
+of most CPUs is 20 to 40 GB/s or 2 to 4 billion double-precision floats
+per second.  If you have a choice, use a many-core many-gigabyte SMP
+computer, not a cluster.</p>
+
+<p>OpenMPI is the coordinated effort of many people with lots of experience
+in several prior implementations of the MPI standard.  As a result,
+OpenMPI is quite sophisticated, and to the uninitiated, opaque and complex.</p>
+
+<p>Writing code to use MPI or OpenMPI is fairly well described in several places.
+Using OpenMPI to best advantage to run that code is not well described.
+A few hints are given above.</p>
+
+<p>There is no current architectural description that I could find, not
+since PMIx was added, anyway.<br/>
+The manpage documentation is
+insufficient for beginners: various technical presentations at the
+annual Supercomputing conferences are written for the highly initiated.
+The README file (in the main repo) is lengthy, 2285 lines, and is worth
+some study.  Ignore the OpenBSD advice. The FAQ on the website is
+mostly obsolete.</p>
+
+<p>The best guides that I could find are listed under Links.</p>
+
+<p>Note on supercomputing environments: Most sites have hundreds or thousands
+of users running dozens or hundreds of jobs.  Users must use a
+&ldquo;module&rdquo; command to enable specific versions of software, e.g.
+<code>module load openmpi/gcc</code>.  Users must write shell scripts and use a
+job scheduler such as Slurm, PBS or SGE which supports a queue of runnable
+shell scripts.  Job schedulers accept details on resources (number of
+CPUs, number of cores, time limits) and provide these to the scripted job.
+None of this is available on OpenBSD (yet).</p>
+
+<p>Links:</p>
+
+<p><a href="https://www.open-mpi.org/" title="OpenMPI home page">OpenMPI home page</a></p>
+
+<p><a href="https://www.mpitutorial.com/" title="A Comprehensive MPI Tutorial Resource">MPI Tutorials</a>  Several programming examples,
+but describes the older mpich implementation, not OpenMPI.</p>
+
+<p><a href="https://github.com/open-mpi/" title="OpenMPI Github repositories">OpenMPI Github repositories</a>  Includes main repo, some subsidiary
+  software, the website, and documentation.</p>
+
+<p><a href="https://github.com/open-mpi/ompi-www/tree/master/papers" title="OpenMPI Papers list, published in the last 15 years">OpenMPI Papers list, published in the last 15 years</a></p>
+
+<p><a href="https://github.com/open-mpi/ompi-www/blob/master/papers/workshop-2006/mon_06_mca_part_1.pdf" title="Modular Component Architecture slides (2006)">Modular Component Architecture slides (2006)</a>  PDF slides. Still valid
+as description but leaves out all the later innovations like PMIx.</p>
+
+<p><a href="https://github.com/open-mpi/ompi-www/blob/master/papers/sc-2015-pmix/PMIx-BoF.pdf" title="Process Management Interface - Exascale - PMIx">Process Management Interface - Exascale - PMIx</a>  PDF slides. Motivates the PMIx
+development.  Fairly technical.</p>
+
+<hr />
+
+<p><a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a> |
+ <a href="onp.html" title="OpenBSD Numerics - Parallelization
+">OpenBSD Numerics - Parallelization</a> <br>
+ <a href="onc.html" title="OpenBSD Numerics - Clusters">OpenBSD Numerics - Clusters</a> |
+ <a href="one.html" title="OpenBSD Numerics - Examples">OpenBSD Numerics - Examples</a> <br>
+ <a href="exp.html" title="OpenBSD Numerics - Experiences pages">OpenBSD Numerics - Experiences pages</a><br></p>
+
+<p></body></p>

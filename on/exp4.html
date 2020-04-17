@@ -1,0 +1,221 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiences with Numerics on OpenBSD - 4 - CAF</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+</head>
+<body></p>
+
+<h1>Experiences with Numerics on OpenBSD - 4 - CAF</h1>
+
+<p>CAF means CoArray Fortran, an extension to the Fortran-95
+standard which provides some simplified parallelization
+capabilities to Fortran-95 (and later standards, of course).</p>
+
+<p>It&rsquo;s not totally simple, but it does provide:</p>
+
+<ul>
+<li>multiple executions of the same program (&ldquo;image&rdquo;) under OpenMPI</li>
+<li>specifying scalars and arrays for exchanging data between images</li>
+<li>data exchanges indicated with assignment statements</li>
+<li>synchronization mechanisms</li>
+</ul>
+
+
+<p>The key idea is using specifically identified variables
+to exchange data amongst the nodes, and not MPI
+primitive routines.  The specific nodes are indicated with square
+brackets <code>variable[(nodenumber)]</code>.</p>
+
+<p>While the old joke about &ldquo;you can write a Fortran program in
+any language&rdquo; is sometimes true, you can&rsquo;t write a CAF program
+in anything but Fortran.  CAF is supported by GCC Fortran and
+some commercial compilers.</p>
+
+<h3>The basics</h3>
+
+<p>Don&rsquo;t rely on me for this; I&rsquo;m terrible at explaining stuff, as
+you can readily see.  Look at the references below for intros
+to Fortran and CAF.</p>
+
+<h3>CAF on OpenBSD</h3>
+
+<p>You need to add a new (as yet unsupported) package for this.  This
+package is pretty simple, see the link; download into
+<code>/usr/ports/mystuff/lang</code> and cd to <code>libopencoarray</code> and issue
+a <code>make package</code>, followed by an install.</p>
+
+<p>What you get includes:</p>
+
+<ul>
+<li><p>a <code>caf</code> command which wraps gcc and library specifics.  It&rsquo;s
+not very reliable and I don&rsquo;t use it.  The <code>--show</code> option is
+very useful to learn how building and linking works, however.</p></li>
+<li><p>a <code>cafrun</code> command which wraps the OpenMPI <code>mpirun</code> command.</p></li>
+<li><p>static and dynamic runtimes which are needed for executables</p></li>
+<li>Fortran <code>opencoarrays.mod</code> file for accessing some features from
+Fortran: reductions, image number, total images.</li>
+</ul>
+
+
+<p>The GCC Fortran compiler includes the <code>-fcoarray=</code> option,
+where the value is either <code>single</code> or <code>lib</code>.  &ldquo;Single&rdquo; uses the
+libcaf_single library included with gfortran and &ldquo;lib&rdquo; uses
+whatever you provide which should be -lcaf_mpi provided with
+the libopencoarray package.</p>
+
+<h3>Test Open Coarrays</h3>
+
+<p>Here is a sample program.  The <code>rnbasis</code> variable is dimensioned
+automatically according to the number of images at runtime:</p>
+
+<pre><code>$ cat coblin.f90 &lt;&lt; __end
+program coblin
+use pcg_basic
+implicit none
+
+    type(pcg_state_setseq_64) :: rnbasis[*]
+
+if ( this_image() .eq. num_images() ) then
+    write (*,*) "this_image()", this_image()
+    write (*,*) "this_image( rnbasis )", this_image( rnbasis )
+    write (*,*) "lcobound( rnbasis )", lcobound( rnbasis )
+    write (*,*) "ucobound( rnbasis )", ucobound( rnbasis )
+    write (*,*) "image_index(ucobound(rnbasis))", &amp;
+       image_index( rnbasis, ucobound( rnbasis ) )
+end if
+end program coblin
+__end
+$ # my pcg lib is in my $HOME directory
+$ il="-I$HOME/gcc/include -L$HOME/gcc/lib"
+$ OMPI_FC=egfortran mpif90 \
+    -fcoarray=lib $il coblin.f90 -lpcg -lcaf_mpi
+$ ./a.out
+ this_image()           1
+ this_image( rnbasis )           1
+ lcobound( rnbasis )           1
+ ucobound( rnbasis )           1
+ image_index(ucobound(rnbasis))           1
+$ mpirun -np 2 -H localhost:2 ./a.out
+ this_image()           2
+ this_image( rnbasis )           2
+ lcobound( rnbasis )           1
+ ucobound( rnbasis )           2
+ image_index(ucobound(rnbasis))           2
+</code></pre>
+
+<p>This isn&rsquo;t the prettiest output, but indicates the low bound and
+upper bounds of the coarray <code>rnbasis</code>, when run with 1 or 2 images.</p>
+
+<h3>RNG and coarrays</h3>
+
+<p>Well, you can run multiple images but if you are doing RNG-based
+calculations you need to ensure each image get&rsquo;s it&rsquo;s own set
+of pseudo-random numbers.  Otherwise their effort is duplicated.</p>
+
+<p>Let&rsquo;s check to see if we understand how:</p>
+
+<pre><code>use pcg_basic
+implicit none
+
+integer, parameter :: veclen = 6
+integer :: perImage(veclen)
+
+call pcg32_srandom( 10_8, 3_8 )
+perImage=pcg32_random()
+sync all
+if(this_image() == 1) then
+    print *,' shallow assignment of pcg32_random()'
+    print *,perImage
+endif
+</code></pre>
+
+<p>Here, &ldquo;shallow&rdquo; assignment means called pcg32_random() once and assign
+that value throughout all elements of the array perImage.  Since
+this array is local to every image, every image has the same
+values in this array.  This is not too interesting for parallelized
+programs: they would all do the same thing with identical RNGs.</p>
+
+<p>Here we use a local variable for each image, and set it according
+to the image number:</p>
+
+<pre><code>type(pcg_state_setseq_64) ::  singlebasis
+type(pcg_state_setseq_64), allocatable :: rnbasis(:)[:]
+
+allocate( rnbasis(num_images())[*] )
+
+call pcg32_srandom_r( singlebasis, &amp;
+    10_8, 3_8 * this_image() )
+rnbasis(this_image())[1] = singlebasis
+sync all
+if(this_image() == 1) then
+    print *,'coarray assignment of rng basis for all images (unbuggy)'
+    print *, rnbasis(1:num_images())%state
+    print *, rnbasis(1:num_images())%inc
+end if
+</code></pre>
+
+<p>This is a bit tricky, so let&rsquo;s walk through one thought at a time:</p>
+
+<ul>
+<li><p><code>singlebasis</code> is local to each image, and is initialized by the
+pcg32_srandom_r routine to a value that depends on the image number
+this_image().</p></li>
+<li><p>The <code>rnbasis</code> array is sized according to the number of images, and the
+square bracket declaration [*] indicates it is a coarray used for exchanging
+data between images.</p></li>
+<li><p>The expression <code>rnbasis(this_image())[1] =</code> will assign a value to
+the rnbasis array located on image #1.  The subscript this_image()
+indicates which element of the array is to receive a value.</p></li>
+<li><p>The rnbasis array(3) element receives a value from image #3, and so on.</p></li>
+<li><p>The rnbasis array located on image #1 (rnbasis()[1]) receives the values.</p></li>
+<li><p>Then image #1 prints the result.  The arrays state and inc values
+will all be different.  Right?</p>
+
+<p>  $ mpirun -np 3 -H localhost:3 ./co_vec.x
+  <br>&hellip;
+  <br> coarray assignment of rng basis for all images (unbuggy)
+   <br>-2490148636861828604 -1198819441200173800    92509754461481004
+  <br>   7                   13                   19</p></li>
+</ul>
+
+
+<p>January 2020</p>
+
+<h2>Glossary</h2>
+
+<dl>
+    <dt>image<dd>In Co-Array Fortran, the executable running
+concurrently with other copies of the same program.
+    <dt>coarray<dd>An array in Co-Array Fortran which can be used
+to exchange data between images.
+    <dt>reduction<dd>An operation, such as sum() or max() producing
+one result from an array of numbers.  Reductions may be calculated on
+arrays or coarrays.
+</dl>
+
+
+<p>Links</p>
+
+<p><a href="https://www.acrc.bris.ac.uk/pdf/coar-notes-FEB-2015.pdf" title="Parallel Programming with Fortran 2008 coarrays">Parallel Programming with Fortran 2008 coarrays</a></p>
+
+<p><a href="https://www.uv.es/dogarcar/man/IntrFortran90.pdf" title="Introduction to Fortran 90, Student notes">Introduction to Fortran 90, Student notes</a></p>
+
+<hr />
+
+<p> <a href="exp1.html" title="OpenBSD Numerics Experience - 1 - RNG">OpenBSD Numerics Experience - 1 - RNG</a>
+<br>
+ <a href="exp2.html" title="OpenBSD Numerics Experience - 2 - RNG floats">OpenBSD Numerics Experience - 2 - RNG floats</a>
+<br>
+ <a href="exp3.html" title="OpenBSD Numerics Experience - 3 - FFTW">OpenBSD Numerics Experience - 3 - FFTW</a>
+<br>
+ <a href="exp4.html" title="OpenBSD Numerics Experience - 4 - CAF">OpenBSD Numerics Experience - 4 - CAF</a>
+<br>
+ <a href="exp5.html" title="OpenBSD Numerics Experience - 5 - MPI Networking">OpenBSD Numerics Experience - 5 - MPI Networking</a>
+<br>
+ <a href="exp6.html" title="OpenBSD Numerics Experience - 6 - Memory Models">OpenBSD Numerics Experience - 6 - Memory Models</a>
+<br>
+<a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a>
+<br></p>
+
+<p></body></p>

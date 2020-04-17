@@ -1,0 +1,238 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiences with Numerics on OpenBSD - 6 - Memory Models</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+</head>
+<body></p>
+
+<h1>Experiences with Numerics on OpenBSD - 6 - Memory Models</h1>
+
+<p>This is a hard one.</p>
+
+<p>Adjusting the code for the cosmic initializer turned out to be pretty simple, but
+when compiled it resulted in a link time error:</p>
+
+<pre><code>ld: error: (....) relocation R_X86_64_PC32 out of range: (...) is not in [-2147483648, 2147483647]
+</code></pre>
+
+<h3>-mcmodel=medium</h3>
+
+<p>Asking @misc resulted in the guidance that compiling with
+<code>-mcmodel=medium</code> is required. What does this mean?  After
+some research, it turns out:</p>
+
+<ul>
+<li>some object files are created assuming data and code is within 31-bit offsets
+from each other. That is, plus or minus 2GB: [-2147483648, 2147483647].</li>
+<li>some object files are created assuming data (not code) is within a 64-bit
+offset</li>
+<li>the difference is <code>-mcmodel=small</code> for the 2GB data+code model,
+and <code>-mcmodel=medium</code> for the 2GB code and 64-bit data model.</li>
+</ul>
+
+
+<p>OK, so rebuild with -mcmodel=medium and the link step works but the
+program fails at runtime with:</p>
+
+<pre><code>Program received signal SIGSEGV: Segmentation fault - invalid memory reference.
+</code></pre>
+
+<p>The backtrace was 64 calls deep, and meaningless:</p>
+
+<pre><code>(gdb) bt
+#0  0x00000b2e7c782d60 in ?? ()
+#1  0x0000000000000004 in ?? ()
+#2  0x00000b31188a09e0 in ?? ()
+#3  0x0000000000000020 in ?? ()
+#4  0x0000000000000020 in ?? ()
+#5  0x0000000000000001 in ?? ()
+#6  0x2b485153b410927a in ?? ()
+.... and so on
+</code></pre>
+
+<p>But when I ran similar (much smaller) test code, it worked.</p>
+
+<p>So I went back to the failing code.  Digging deeper into the
+backtrace required a static build to get a symbol table for the backtrace.
+And it was deep into the internals
+of fftw3.  Hmm, nothing wrong with that code (by assumption).  Here is
+what it looked like:</p>
+
+<pre><code>(gdb) bt
+#0  0x00000efe25ec2f80 in recur () from /usr/local/lib/libfftw3f.so.7.1
+#1  0x00000efe25ec2e8e in recur () from /usr/local/lib/libfftw3f.so.7.1
+#2  0x00000efe25ec365a in zero () from /usr/local/lib/libfftw3f.so.7.1
+#3  0x00000efe25e80dc4 in fftwf_measure_execution_time ()
+   from /usr/local/lib/libfftw3f.so.7.1
+#4  0x00000efe25e7cd2b in evaluate_plan () from /usr/local/lib/libfftw3f.so.7.1
+#5  0x00000efe25e7cb47 in search0 () from /usr/local/lib/libfftw3f.so.7.1
+#6  0x00000efe25e7b5f3 in mkplan () from /usr/local/lib/libfftw3f.so.7.1
+.... and so on
+</code></pre>
+
+<p>And this was 25 calls deep.  Not the same issue.  Or, perhaps it was.</p>
+
+<p>Where was I? Linking works, but while running code the program segfaults.  Some kind
+of pointer issue, perhaps?  The Fortran code I was testing had no pointers.</p>
+
+<h3>Static sections</h3>
+
+<p>It is very easy to make arrays larger than 2GB. But, in fact what the
+initializer was doing was calling <code>pencil_fft.f90</code> which had local
+temporary arrays which were only 14M elements, or 56MB.</p>
+
+<p>In Fortran, all statically defined variables end up in the same
+section.  A &ldquo;section&rdquo; is a unit of memory allocation as defined by the
+linker and loader: it has a name, length, read/write attributes, etc.
+All object files are combined by the linker by matching up
+their sections and either
+concatenating them (such as for static variables or executable code
+) or merging them (offset tables).</p>
+
+<p>Programmers don&rsquo;t need to know much about sections until they run into
+security issues (write XOR with execute, abbreviated  W ^ X), or
+stack size issues, or as in this case, memory addressing issues.</p>
+
+<p>The section here is the .bss section:</p>
+
+<pre><code>$ objdump -h pencil_fft.o
+
+pencil_fft.o:     file format elf64-x86-64
+
+Sections:
+Idx Name          Size      VMA               LMA               File off  Algn
+  0 .text         00002dd8  0000000000000000  0000000000000000  00000040  2**2
+          CONTENTS, ALLOC, LOAD, RELOC, READONLY, CODE
+  1 .data         00000000  0000000000000000  0000000000000000  00002e18  2**2
+          CONTENTS, ALLOC, LOAD, DATA
+  2 .bss          000b4ca8  0000000000000000  0000000000000000  00002e20  2**5
+          ALLOC
+</code></pre>
+
+<p>where the 0x000b4ca8 size is 740520 bytes (decimal).</p>
+
+<p>Looking into the whole program, the bss section was not too big.  So, back
+to examine the code.</p>
+
+<p>The fft routines declared input and output arrays as <code>integer(C_INT), dimension(*), intent(in)</code>
+while the calling code was explicit dimensions <code>dimension(number)</code>.  Maybe that
+was it?</p>
+
+<h3>Arrays with assumed-shape and explicit-shape</h3>
+
+<p>The difference is whether the calling sequence delivers the array itself
+(as with explicit-shape), or some description of it (assumed-shape).  Both
+the routine and the main code must agree otherwise you get dreaded
+Segmentation faults.</p>
+
+<p>For example</p>
+
+<pre><code>$ cat &gt;t.f90 &lt;&lt; __end
+program lbug
+  implicit none
+  save
+  real    r3(ng,ng,ng)  ! explicit shape, ng is a macro
+
+  print *,'hello bug'
+  call someexternal(r3,3)
+  print *,r3(3,3,3)
+endprogram
+__end
+
+$ cat &gt;tse.f90 &lt;&lt; __end
+subroutine someexternal(a,b)
+   real a(:,:,:)        ! assumed shape
+   print *,'b is ',b
+   print *,a(1,1,1)
+endsubroutine
+__end
+
+$ egfortran -c -cpp -Dng=20 t.f90
+$ egfortran -c              tse.f90
+$ egfortran t.o tse.o
+$ ./a.out
+ hello bug
+ b is    4.20389539E-45
+
+Program received signal SIGSEGV: Segmentation fault - invalid memory reference.
+</code></pre>
+
+<p>A compile-time detection for this happens when both program and subroutine
+appear in the same file.  In this case, you get</p>
+
+<pre><code> call someexternal(r3,3)
+           1
+Error: Explicit interface required for 'someexternal' at (1): assumed-shape argument
+</code></pre>
+
+<p>To fix this, you can choose to modify the code to be explicit (passing the
+dimensions along with the array), or explain the interface to the compiler
+with an INTERFACE definition.</p>
+
+<p>The code then looks like this:</p>
+
+<pre><code>program lbugt
+  implicit none
+  save
+  real, allocatable :: r3(:,:,:)  ! deferred shape
+  interface
+    subroutine someexternal(x,y)
+      real, dimension (:,:,:) :: x
+      real :: y
+    end subroutine
+  end interface
+
+  print *,'hello bug'
+  allocate (r3(ng,ng,ng))         ! ng is a macro
+  call someexternal(r3,3.0)
+  print *,r3(3,3,3)
+endprogram
+</code></pre>
+
+<p>The results look like:</p>
+
+<pre><code>$ egfortran -cpp -Dng=20 -c tb.f90
+$ cat lbugp.f90
+subroutine someexternal(a,b)
+   real a(:,:,:)   ! assumed shape
+   print *,'b is ',b
+   print *,a(1,1,1)
+endsubroutine
+$ egfortran -c lbugp.f90
+$ egfortran tb.o lbugp.o
+$ ./a.out
+ hello bug
+ b is    3.00000000
+   0.00000000
+   0.00000000
+$
+</code></pre>
+
+<h3>Conclusion</h3>
+
+<p>This is one subtlety of the new Fortran language spec: arrays are a little
+more complicated that you might think.</p>
+
+<p>February 2020</p>
+
+<p><br></p>
+
+<hr />
+
+<p> <a href="exp1.html" title="OpenBSD Numerics Experience - 1 - RNG">OpenBSD Numerics Experience - 1 - RNG</a>
+<br>
+ <a href="exp2.html" title="OpenBSD Numerics Experience - 2 - RNG floats">OpenBSD Numerics Experience - 2 - RNG floats</a>
+<br>
+ <a href="exp3.html" title="OpenBSD Numerics Experience - 3 - FFTW">OpenBSD Numerics Experience - 3 - FFTW</a>
+<br>
+ <a href="exp4.html" title="OpenBSD Numerics Experience - 4 - CAF">OpenBSD Numerics Experience - 4 - CAF</a>
+<br>
+ <a href="exp5.html" title="OpenBSD Numerics Experience - 5 - MPI Networking">OpenBSD Numerics Experience - 5 - MPI Networking</a>
+<br>
+ <a href="exp6.html" title="OpenBSD Numerics Experience - 6 - Memory Models">OpenBSD Numerics Experience - 6 - Memory Models</a>
+<br>
+<a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a>
+<br></p>
+
+<p></body></p>

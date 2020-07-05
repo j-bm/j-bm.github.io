@@ -149,9 +149,8 @@ new package files for OpenMP.  (The patch adds .h and library
 files for OpenMP to the packages).  Use
 <a href="https:gcc830.patch" title="patch">this</a> patch file:</p>
 
-<pre><code>doas pkg_add bzip2 gmake libsigsegv libexecinfo m4 xz
-doas pkg_add help2man gmp libmpc libiconv gettext-runtime  metaauto 
-doas pkg_add bison autoconf--%2.69 automake--%1.16 mpfr
+<pre><code>doas pkg_add xz bison gmake gmp libexecinfo
+doas pkg_add libmpc mpfr
 
 cd /usr/ports/lang/gcc
 patch &lt; path/to/gcc830.patch

@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Numerics on OpenBSD</title>
 <link rel="stylesheet" href="w3.css" media="screen">
+<link rel="canonical" href="https://j-bm.github.io/on/on.html">
 </head>
 <body></p>
 
@@ -16,8 +17,8 @@ some scripting languages for numerical calculations on OpenBSD.</p>
 <p>Not all languages and scripts are included, mostly because I
 don&rsquo;t know about all of them.</p>
 
-<p>(This guide is valid for OpenBSD release 6.5 and 6.6 and should be
-considered obsolete after October 2020 unless updated.  It is
+<p>(This guide is valid for OpenBSD release 6.7 and 6.8 and should be
+considered obsolete after October 2021 unless updated.  It is
 mostly about the AMD64 and compatible platforms.)</p>
 
 <h2>OpenBSD as a numerical computation platform</h2>
@@ -28,7 +29,7 @@ Mostly it is known for security and excellent documentation.</p>
 <p>Yet, many computational tools are available including recent releases:</p>
 
 <ul>
-<li>clang compiler, including C, C++ and Flang (Fortran)</li>
+<li>clang compiler, including C and C++</li>
 <li>GNU C/C++ suite, also including Ada, Fortran, Objective-C</li>
 <li>Octave, a workalike to MATLAB</li>
 <li>Python including numpy, pandas, scikit-learn, scipy</li>
@@ -100,7 +101,7 @@ page for further information.</p>
 
 <h3>Arithmetic varies with optimization</h3>
 
-<p>AMD64 platforms use 80-bit floating-point
+<p>AMD64 platforms can use 80-bit floating-point
 arithmetic internally, and 64-bit arithmetic for
 double-precision values that are written
 to memory.  Some compile options (vector instructions like SSE3, AVX,
@@ -147,9 +148,9 @@ temperatures, date and time, etc.</li>
 <p>You can use C and Fortran code compiled with either compiler
 together in the same executable.  We know this because code compiled
 with the GCC C compiler successfully links with the OpenBSD base (built
-with clang).</p>
+with clang).  Note only GCC Fortran (g95) is available as of OpenBSD 6.8.</p>
 
-<p>C++ is not compatible across the two because the run-time libraries are
+<p>C++ is not compatible across clang and GCC because the run-time libraries are
 not interchangeable.
 If you want to use C++ libraries from ports you have to use clang C++.</p>
 
@@ -163,7 +164,7 @@ uses clang C++ and would have to be built separately with GCC (or avoided).</p>
 
 <p>Most numerically useful interpreted or scripting languages are available.</p>
 
-<p>Python 2.x is available but is deprecated; Python 3.x is available too. A
+<p>Python 3.8 is available. A
 number of python packages are available to be added as you need them.
 Python virtual environments work as well.</p>
 

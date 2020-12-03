@@ -2,7 +2,8 @@
 <head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Numerics on OpenBSD - Examples</title>
-<link rel="stylesheet" href="w3.css" media="screen"></p>
+<link rel="stylesheet" href="w3.css" media="screen">
+<link rel="canonical" href="https://j-bm.github.io/on/one.html"></p>
 
 <script src="https://cdn.jsdelivr.net/npm/vega@5.7.2"></script>
 
@@ -23,6 +24,11 @@
 <p>We try three programs across two CPUs across several compiler options.
 The purpose is to show the variety of possible results for various kinds
 of numerical program and options available to the user.</p>
+
+<p>Note: these test results are now dated, using OpenBSD 6.6 where the LLVM
+Fortran compiler &ldquo;flang&rdquo; was available.  I have not updated the results to
+OpenBSD 6.8 because the result is the same: I explain that you can expect various
+levels of performance with tuning.  The software versions are not relevent here.</p>
 
 <p>The programs are</p>
 

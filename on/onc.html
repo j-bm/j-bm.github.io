@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Numerics on OpenBSD - Clusters</title>
 <link rel="stylesheet" href="w3.css" media="screen">
+<link rel="canonical" href="https://j-bm.github.io/on/onc.html">
 </head><body>
 <img src="media/karla-car-58AiTToabyE-unsplash-3.jpg" title="Cluster of sailboats" alt="Cluster of sailboats" /></p>
 
@@ -29,43 +30,31 @@ is started on it&rsquo;s assigned computer to compute it&rsquo;s part of the res
 MPI to avoid confusion with other libraries (OpenMP, OpenMPT, etc).</p>
 
 <p>MPI is built with GCC compilers for C and Fortran.  You can also
-use the clang compiler with this MPI runtime, but not flang because the
-two compilers differ in handling of arrays (a datatype supported by MPI).</p>
+use the clang compiler with this MPI runtime.</p>
 
-<p>GCC Fortran also supports Co-Array Fortran, which is a higher-level language
+<p>GCC Fortran also supports Co-Array Fortran (CAF), which is a higher-level language
 abstraction that uses MPI as a basis.   CAF support for a cluster
 requires an additional (unsupported) OpenCoarrays library to be installed.
 CAF support for a single machine is included in the GCC Fortran package.</p>
 
-<h4>OpenBSD and MPI on 6.6</h4>
+<h4>OpenBSD and MPI on 6.8</h4>
 
-<p>OpenBSD version 6.6 includes OpenMPI version 4.0.1 in ports.  This version has
+<p>OpenBSD version 6.8 includes OpenMPI version 4.0.5 in ports.  This version has
 a couple of issues:</p>
 
 <ol>
-<li>The &ldquo;vader&rdquo; communications library has a bug when finalizing that
-results in noisy (but irrelevent) segfaults when the program completes.</li>
 <li>The file-based data service used to coordinate nodes uses an
 unsupported pthreads call.  An alternative needs to be specified.</li>
-</ol>
-
-
-<p>These issues are fixed by defining these two symbols before using mpirun:</p>
-
-<pre><code>export OMPI_MCA_btl=self,tcp
-export PMIX_MCA_gds=hash
-</code></pre>
-
-<p>The OMPI_MCA_btl symbol is not needed for OpenMPI 4.0.2 or later.</p>
-
-<p>One other issue is</p>
-
-<ol>
 <li>With GCC Fortran (egfortan compiler), a number of irrelevent symbol
 definition warnings are often issued at runtime. You may safely
 ignore these.</li>
 </ol>
 
+
+<p>The first issue is fixed by defining this symbol before using mpirun:</p>
+
+<pre><code>export PMIX_MCA_gds=hash
+</code></pre>
 
 <h3>OpenBSD and MPI and OpenMP</h3>
 
@@ -112,6 +101,11 @@ with the OpenMPI distributed database component &ldquo;gds&rdquo;.</p>
 
 <h4>MPI and OpenMP code example</h4>
 
+<p>Here is an example program showing OpenMPI (parallel threads) and
+OpenMP (distributed processing across multiple nodes).  It computes
+the same value on most nodes, and a unique value on one.  It then
+prints the total.</p>
+
 <pre><code>cat &gt; test2.c &lt;&lt; __end
 #include &lt;mpi.h&gt;
 #include &lt;omp.h&gt;
@@ -155,7 +149,7 @@ Hello, world, I am 1 of 3, threads 4, tot 1429975308
 </code></pre>
 
 <p>This example shows a combination of OpenMP SMP (multithreading) calculating the
-array a and totalling it, and MPI running the same code several times.</p>
+array <code>a</code> and totalling it, and MPI running the same code several times.</p>
 
 <p>The OMPI_CFLAGS variable is needed to specify <code>-fopenmp</code> otherwise compiler
 errors occur.  This is direction to MPI at the compile step.</p>
@@ -184,8 +178,9 @@ Using OpenMPI to best advantage to run that code is not well described.
 A few hints are given above.</p>
 
 <p>There is no current architectural description that I could find, not
-since PMIx was added, anyway.<br/>
-The manpage documentation is
+since PMIx (a massive scaling feature) was added, anyway.</p>
+
+<p>The manpage documentation is
 insufficient for beginners: various technical presentations at the
 annual Supercomputing conferences are written for the highly initiated.
 The README file (in the main repo) is lengthy, 2285 lines, and is worth

@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Experiences with Numerics on OpenBSD - 1 - RNG</title>
 <link rel="stylesheet" href="w3.css" media="screen">
+<link rel="canonical" href="https://j-bm.github.io/on/exp1.html">
 </head>
 <body></p>
 
@@ -28,7 +29,7 @@ no OpenMP in there.  But the code was doing 3-D FFTs on cubic arrays.</p>
 
 <p>So build (on OpenBSD 6.6, flang 8.0.1, fftw3 3.3.8, g95 8.3.0), using included
 build script, and discover g95 conflicts with flang over the location
-of mod files.  Move the files, report the bug, and switch to flang.</p>
+of mod files.  Move the files, report the bug, and switch to flang (*).</p>
 
 <pre><code>echo $p
 -I/usr/local/include -I/usr/local/include/flang -L/usr/local/lib
@@ -46,6 +47,8 @@ flang -O3 -o testfft.x $p $libf -x f95 test.f90.orig
 
 <p>Whoah there.  NaN from an FFT?  Shouldn&rsquo;t anything be allowed as input
 and therefore generate valid output?</p>
+
+<p> (*) Note that flang is no longer available on OpenBSD from 6.8 onward.</p>
 
 <h2>GIGO thoughts</h2>
 
@@ -131,7 +134,7 @@ FFT on the artificial data:</p>
 <pre><code>integer, parameter :: ng = 304
 real den(ng + 2, ng, ng)
 ....
-call random_number(den(:ng, :, :))  !!! fill with random (0,1]
+call random_number(den(:ng, :, :))  !!! fill with random [0,1)
 ....
     temp_theta = 2*pi*den(i, j, k)
     temp_r = sqrt(-2*log(1 - den(i + 1, j, k)))
@@ -230,7 +233,7 @@ double ENT3F(RANDOM, random)(void) { return drand48(); }
 
 <pre><code>real den(ng + 2, ng, ng)
 ....
-call random_number(den(:ng, :, :))  !!! fill with random (0,1]
+call random_number(den(:ng, :, :))  !!! fill with random [0,1)
 </code></pre>
 
 <p>What we were seeing, but didn&rsquo;t understand, was an implied</p>
@@ -257,7 +260,7 @@ call checkrngone(den, ng)
 <p>And after a few hundred million random numbers are generated and tested,
 it seems to work.</p>
 
-<p>December 2019</p>
+<p>December 2019 (revised November 2020)</p>
 
 <h2>Glossary</h2>
 

@@ -1,0 +1,287 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiences with Numerics on OpenBSD - 9 - Nim</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+<link rel="canonical" href="https://j-bm.github.io/on/exp9.html">
+</head>
+<body></p>
+
+<h1>Experiences with Numerics on OpenBSD - 9 - Nim</h1>
+
+<p>The Nim language has a couple of interesting features:</p>
+
+<ul>
+<li>script language as well as compiled</li>
+<li>careful (sometimes annoying) type system</li>
+<li>threading built-in</li>
+<li>compiles to C which compiles to effective code</li>
+<li>some amazing compile-time features</li>
+</ul>
+
+
+<h3>Pi the hard way</h3>
+
+<p>One typical example of numerical integration is the calculation of pi by
+approximation, specifically by estimation of area of a circle and
+area of a square.</p>
+
+<pre><code>area of circle = pi * r * r
+area of enclosing square is (2*r)*(2*r)
+select a random point
+if a point is inside the circle then increment n
+m = total number points
+pi = 4 * n/m, give or take
+</code></pre>
+
+<p>This is an example of numerical integration but only on two dimensions.
+Usually this method is used for many more dimensions.  Also, you often
+don&rsquo;t have an absolute truth to compare your answer against!</p>
+
+<p>The core of an implementation in Nim looks like</p>
+
+<pre><code>proc integpi(rand: Rand): float =
+  var r = rand
+  var randx, randy: float
+  var ctr: float = 0
+  for i in 0..&lt;Nlim:
+    randx = float(r.next and int32bits)
+    randy = float(r.next and int32bits)
+    if ((randx*randx + randy*randy) &lt; float(int32max)*float(int32max)):
+      ctr = ctr + 1
+  return ctr
+</code></pre>
+
+<p>Here we use 64-bit random integers masked to 32 bits.  Then compare the
+circle boundary x * x + y * y &lt; r * r.
+Pi is then 4*ctr/Nlim.  This code uses floating point because that
+happened to be a quick way to avoid some Nim value conversion issues
+by this novice Nim programmer.
+It is a bit slower than using unsigned int64s throughout.</p>
+
+<p>This is also an example of something that is embarrasingly parallel.  You
+could run independent threads of integpi, and as long as the random number
+generators are independent, add up the results of each thread.  Up to
+the limit of the density of random numbers in this 32-bit space of
+numbers, that is.</p>
+
+<h3>Threading</h3>
+
+<p>The threading model in Nim allows basic threads, and the various lock
+functions allow to synchronize threads.</p>
+
+<p>An interesting feature of threads is they are non-deterministic.
+They are serial, but the priority and speed of each thread is up
+to the operating system.  If you oversubscribe your
+CPUs, then you cannot expect anything other than eventual completion.</p>
+
+<p>For example, on 2-core Penryn:</p>
+
+<pre><code> epi64timed.nim using 2 threads x 10100100100 loops
+ Thread report:
+|***************************************************|
+|***************************************************|
+ pi 3.141592653589793 estimated 3.141586181705268 diff -6.471884524739124e-06
+</code></pre>
+
+<p>The stars begin at earliest thread start time, and end at latest thread
+completion.  Here
+it is no surprise both threads are concurrent.</p>
+
+<pre><code> epi64timed.nim using 8 threads x 10100100100 loops
+ Thread report:
+|****************************************           |
+|**************                                     |
+|***************************************            |
+|*************************************              |
+|             *************                         |
+|                         **************            |
+|                                    ***************|
+|                                      *************|
+ pi 3.141592653589793 estimated 3.141588725343425 diff -3.928246368190003e-06
+</code></pre>
+
+<p>Now that is an 8-thread program on a 2-core machine. Obviously some threads
+don&rsquo;t start until later.  These are listed in order of thread creation
+but there is no guarantee this pattern will repeat.</p>
+
+<p>What about Linux, on a 4-core Raspberry Pi?</p>
+
+<p>Here is that result:</p>
+
+<pre><code> pi 3.141592653589793 estimated 3.141593079161661 diff 4.255718679679887e-07
+ epi64timed.nim using 8 threads x 10100100100 loops
+ Thread report:
+|**************************                         |
+|**************************                         |
+|**************************                         |
+|**************************                         |
+|                         **************************|
+|                         **************************|
+|                         **************************|
+|                         **************************|
+ pi 3.141592653589793 estimated 3.141588725343425 diff -3.928246368190003e-06
+</code></pre>
+
+<p>This pattern tends to be the case for several Linux distributions, where
+four or so threads are run, they all complete, and the next four threads
+are run.  I see a similar pattern on Mint(Ubuntu) on the Penryn 2-core machine.</p>
+
+<h3>Nim Pi code, annotated</h3>
+
+<p>Here is the code, annotated, from beginning to end, showing how pi is
+calculated and how the star-bars are calculated and printed.</p>
+
+<pre><code># epi64timed.nim
+#  estimate pi with threads
+#  use uint64 wherever possible
+#  report relative thread timings graphically
+
+import math, os, random, strutils, threadpool
+import std/monotimes, times
+
+{.experimental: "parallel".}
+</code></pre>
+
+<p>This code uses various standard modules from Nim.  The monotimes
+module is for timing. It defines the MonoTime type used for Durations.  This code uses the
+still-experimental parallel features of Nim</p>
+
+<pre><code>const realpi = 4.0*math.arctan(1.0)
+const Nlim = 10100100100
+const int32max = high(int32)
+const int32bits = cast[uint64](int32max)
+type
+  intresult = tuple
+    ctr: uint64
+    btime, etime: MonoTime
+
+var mypi: float
+var nthreads: int
+</code></pre>
+
+<p>Here we define the truth value of pi, a loop count for each thread, a couple
+of constants for our 2n x 2n box, where a box is 2 x int32max on a side.</p>
+
+<p>To be clear, high(int32) is a 31-bit number so &ldquo;int32max&rdquo; is a 31-bit number too.
+We also declare a value for the
+estimate, and a tuple defining the result of a calculation.  The tuple includes
+begin-time and end-time of each thread.</p>
+
+<pre><code>proc integpi(rand: Rand): intresult =
+  var r = rand
+  var randx, randy: uint64
+  var ctr: uint64 = 0
+  result.btime = getMonoTime()
+  for i in 0..&lt;Nlim:
+    randx = r.next and int32bits
+    randy = r.next and int32bits
+    if ((randx*randx + randy*randy) &lt; int32bits*int32bits): ctr = ctr + 1
+  result.etime = getMonoTime()
+  result.ctr = ctr
+</code></pre>
+
+<p>This is an implementation of the algorithm above, in uint64 with 31-bit
+ints randomly sprinkled around a box.  The variables are not named well.</p>
+
+<pre><code>proc estimatepi(t: int): float =
+  var numers = newSeq[intresult](t+2)  # 0 not used
+  var sumnumerator: float = 0.0
+  var rstate = initRand(23415332)
+  parallel:
+    for k in 1..t:
+      numers[k] = spawn integpi(rstate)
+      rstate.skipRandomNumbers()       # skip 2^64 results
+  for k in 1..t:
+    sumnumerator = sumnumerator + float(numers[k].ctr)
+</code></pre>
+
+<p>This is the parallel code section calling the integpi routine once per thread.
+The interesting bits for non-Nim programmers are:</p>
+
+<ul>
+<li>the newSeq call defines a sequence, a dynamically sized vector of &ldquo;intresult&rdquo; tuples</li>
+<li>the random number generator in Nim is xoroshiro128+ by default; this is a typical initializer</li>
+<li>a useful feature of xoroshiro128+ is a skip function allowing to jump 2 ^ 64 steps ahead (This
+ensures each thread is using different pseudo-random number sequences.)</li>
+<li>&ldquo;for&rdquo; statements have no { } or begin/end; they are defined by indentation and indicated with a colon &ldquo;:&rdquo;</li>
+</ul>
+
+
+<p>Here is the code for the star-bars:</p>
+
+<pre><code>  block:
+    var mint, maxt: MonoTime
+    var linsp: string
+    var lspace, espace: int
+    var difft: float
+    mint=numers[1].btime
+    maxt=numers[1].etime
+    for k in 1..t:
+        mint=min(numers[k].btime,mint)
+        maxt=max(numers[k].etime,maxt)
+    difft=float((maxt-mint).inMilliseconds)
+    echo " Thread report:"
+    for k in 1..t:
+        linsp=" ".repeat(51)
+        lspace=toInt(50*float((numers[k].btime-mint).inMilliseconds)/difft)
+        espace=toInt(50*float((numers[k].etime-mint).inMilliseconds)/difft)
+        for i in lspace..espace: linsp[i] = '*'
+        echo "|",linsp,"|"
+</code></pre>
+
+<p>This is a block that prints out the text-based
+graphs showing relative thread begin/end times.  There is no scale factor
+or actual numbers reported; the intent is to show relative start/stop times,
+not actual values.</p>
+
+<p>I suspect this code can be simplified to eliminate loops, such as the mint and
+maxt calculation or placing &lsquo;*&rsquo; characters.</p>
+
+<h3>Conclusion</h3>
+
+<p>Nim is an interesting language with useful features (careful type checking;
+spaces for grouping and defining implicit blocks; object-oriented features;
+generics; introspection of the compiler during compilation, etc etc).</p>
+
+<p>May 2020<br>
+Asahi Super Dry</p>
+
+<p><br></p>
+
+<p>Links:</p>
+
+<p><a href="https://nim-lang.org/" title="Nim Language site">Nim Language site</a>
+<br>
+<a href="https://nim-lang.org/docs/random.html" title="Nim random module">Nim random module</a>
+<br></p>
+
+<p>Note:<br>
+The nim package on OpenBSD 6.7 has a couple of bugs in the
+nimscript code, easily fixable though.  The compiler works just fine.</p>
+
+<pre><code>$ nim c -d:deploy epi64timed.nim
+$ ./epi64timed
+</code></pre>
+
+<hr />
+
+<p> <a href="exp1.html" title="OpenBSD Numerics Experience - 1 - RNG">OpenBSD Numerics Experience - 1 - RNG</a>
+<br>
+ <a href="exp2.html" title="OpenBSD Numerics Experience - 2 - RNG floats">OpenBSD Numerics Experience - 2 - RNG floats</a>
+<br>
+ <a href="exp3.html" title="OpenBSD Numerics Experience - 3 - FFTW">OpenBSD Numerics Experience - 3 - FFTW</a>
+<br>
+ <a href="exp4.html" title="OpenBSD Numerics Experience - 4 - CAF">OpenBSD Numerics Experience - 4 - CAF</a>
+<br>
+ <a href="exp5.html" title="OpenBSD Numerics Experience - 5 - MPI Networking">OpenBSD Numerics Experience - 5 - MPI Networking</a>
+<br>
+ <a href="exp6.html" title="OpenBSD Numerics Experience - 6 - Memory Models">OpenBSD Numerics Experience - 6 - Memory Models</a>
+<br>
+<a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a>
+<br></p>
+
+<script data-goatcounter="https://93ff62b00d7de509ff88f53b.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+
+
+<p></body></p>

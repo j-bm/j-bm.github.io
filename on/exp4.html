@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Experiences with Numerics on OpenBSD - 4 - CAF</title>
 <link rel="stylesheet" href="w3.css" media="screen">
+<link rel="canonical" href="https://j-bm.github.io/on/exp4.html">
 </head>
 <body></p>
 
@@ -16,7 +17,7 @@ capabilities to Fortran-95 (and later standards, of course).</p>
 
 <ul>
 <li>multiple executions of the same program (&ldquo;image&rdquo;) under OpenMPI</li>
-<li>specifying scalars and arrays for exchanging data between images</li>
+<li>exchanging or transferring scalars and arrays between images</li>
 <li>data exchanges indicated with assignment statements</li>
 <li>synchronization mechanisms</li>
 </ul>
@@ -60,9 +61,9 @@ Fortran: reductions, image number, total images.</li>
 
 <p>The GCC Fortran compiler includes the <code>-fcoarray=</code> option,
 where the value is either <code>single</code> or <code>lib</code>.  &ldquo;Single&rdquo; uses the
-libcaf_single library included with gfortran and &ldquo;lib&rdquo; uses
+libcaf_single library included with the fortran package.  Specifying &ldquo;lib&rdquo; uses
 whatever you provide which should be -lcaf_mpi provided with
-the opencoarrays package.</p>
+this opencoarrays package.</p>
 
 <h3>Test Open Coarrays</h3>
 
@@ -180,7 +181,12 @@ will all be different.  Right?</p>
 </ul>
 
 
-<p>January 2020</p>
+<p>If you feel like I just threw you into the deep end of the Co-Array
+Fortran swimming pool, you are right.  See the links for a gentler
+introduction to CAF and getting some ordinary things done.  Then you
+might find this RNG article more understandable.</p>
+
+<p>January 2020 (revised November 2020)</p>
 
 <h2>Glossary</h2>
 

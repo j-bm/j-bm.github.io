@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Numerics on OpenBSD - Parallel code</title>
 <link rel="stylesheet" href="w3.css" media="screen">
+<link rel="canonical" href="https://j-bm.github.io/on/onp.html">
 </head><body>
 <img src="media/krzysztof-kowalik-aVMwwQU72Eo-unsplash-3.jpg" title="Dual-core airplane" alt="Dual-core airplane" /></p>
 
@@ -19,7 +20,7 @@ results from non-parallel code is ultimately limited by the speed
 of the non-parallel part.</p>
 
 <p>POSIX-compatible threading libraries are included in OpenBSD, if you have
-code (like fftw) that can use it.</p>
+code (like fftw version 3) that can use it.</p>
 
 <p>You can add non-supported OpenMP libraries to your OpenBSD system.  OpenMP
 allows you to put simple directives (called pragmas) in your
@@ -36,15 +37,10 @@ you develop code with the OpenMP pragmas?  The answer is: you need
 a &ldquo;stub&rdquo; runtime library that supports OpenMP programs but
 behaves as a single-core machine. Also, use the fact that the clang and GNU
 compilers support the <code>-fopenmp</code>
-switch, even if they don&rsquo;t include their respective runtime libraries.</p>
+switch, even if OpenBSD doesn&rsquo;t include their respective OpenMP runtime libraries.</p>
 
-<p>The stub library is included with the flang compiler; just install that from
-ports:</p>
-
-<pre><code>doas pkg_add flang
-</code></pre>
-
-<p>You can test with this:</p>
+<p>The stub library was included with the flang compiler (OpenBSD 6.7 and earlier).
+But in OpenBSD 6.8 the flang compiler is not available.  So you need your own.</p>
 
 <pre><code>cat &gt; testopenmp.c &lt;&lt; __end
 #include &lt;omp.h&gt;
@@ -53,7 +49,9 @@ int main(void) {
 }
 __end
 
-cc -fopenmp -I/usr/local/include -L/usr/local/lib -lompstub testopenmp.c
+cc -fopenmp -I/usr/local/include -L/usr/local/lib \
+    -I . \
+    testopenmp.c myomp.o
 ./a.out
 echo $?
 </code></pre>
@@ -61,7 +59,41 @@ echo $?
 <p>and see an expected &ldquo;1&rdquo;.  (cc here refers to the default compiler, a.k.a.
 clang cc).</p>
 
-<p>With this library (or one you write yourself) you can write and partly
+<p>For codes that use <code>#pragma omp</code> statements, simply omit the
+<code>-fopenmp</code> directive and code that refers to omp_get_xxx() routines
+will still work, because the stub supplies them.  The compiler
+will ignore <code>#pragma</code> statements it doesn&rsquo;t process.</p>
+
+<p>A stub library needs an <code>omp.h</code> file and an object file to link with.</p>
+
+<p>Here is a simple omp.h file:</p>
+
+<pre><code>#ifndef __OMP_H
+#   define __OMP_H
+
+extern void   omp_set_num_threads (int);
+
+extern int    omp_get_num_threads  (void);
+extern int    omp_get_max_threads  (void);
+extern int    omp_get_thread_num   (void);
+extern int    omp_get_num_procs    (void);
+
+#endif /* __OMP_H */
+</code></pre>
+
+<p>And here is the corresponding mylib.c stub file:</p>
+
+<pre><code>#include "omp.h"
+
+extern void   omp_set_num_threads (int a) {};
+
+extern int    omp_get_num_threads  (void) {return 1;};
+extern int    omp_get_max_threads  (void) {return 1;};
+extern int    omp_get_thread_num   (void) {return 0;};
+extern int    omp_get_num_procs    (void) {return 1;};
+</code></pre>
+
+<p>With this library you can write and partly
 debug OpenMP code for use
 on other operating systems.</p>
 
@@ -94,46 +126,35 @@ described in the Handbook.  Check that /usr/cache, /usr/distfiles,
 suitable ownership and permissions.  Test by building the math/minisat
 package, which consists of a single download and a few simple compiles.</p>
 
-<p>We show how to build and install packages for both static and dynamic libraries.
-Select the correct downloads according to whether you are running 6.5 or
-6.6:</p>
+<p>We show how to build and install packages for both static and dynamic libraries.</p>
 
-<p>For OpenBSD 6.5, fetch <a href="https:openmp800.tar.gz">this</a> and
-<a href="https:stlibomp800.tar.gz">that</a>.</p>
-
-<p>For OpenBSD 6.6, fetch <a href="https:openmp801.tar.gz">this</a> and
-<a href="https:stlibomp801.tar.gz">that</a>.</p>
-
-<p>(The two download versions match the clang compiler versions, respectively).</p>
-
-<p>The following examples are for OpenBSD 6.5.  For 6.6 the procedures vary slightly.</p>
+<p>For OpenBSD 6.8, fetch <a href="https:openmp1001.tar.gz">this</a> and
+<a href="https:stlibomp1001.tar.gz">that</a>.</p>
 
 <p>Unpack these two into /usr/ports/mystuff/lang/.</p>
 
 <pre><code>sysctl kern.version
-## Verify OpenBSD 6.5
+## Verify OpenBSD 6.8
 cd /usr/ports/mystuff/
-tar xzf path/to/openmp800.tar.gz
-tar xzf path/to/stlibomp800.tar.gz
+tar xzf path/to/openmp1001.tar.gz
+tar xzf path/to/stlibomp1001.tar.gz
 </code></pre>
 
-<p>Verify the version 8.0.0 within the Makefile is correct then make it:</p>
+<p>Verify the version 10.0.1 within the Makefile is correct then make it:</p>
 
-<pre><code>doas pkg_add bison metaauto ninja re2c unzip-- zip cmake
-doas pkg_add gmake git bash flang
+<pre><code>doas pkg_add ninja cmake xz
 
 cd /usr/ports/mystuff/lang/stlibomp
 clang -v    (compare to V= within Makefile)
-vi Makefile
 make package
-doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/6.5/package/amd64/all \
+doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/6.8/package/amd64/all \
     pkg_add stlibomp
 
 cd /usr/ports/mystuff/lang/libomp
 clang -v    (compare to V= within Makefile)
 vi Makefile
 make package
-doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/6.5/package/amd64/all \
+doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/6.8/package/amd64/all \
     pkg_add libomp
 </code></pre>
 
@@ -147,19 +168,19 @@ from the misc@ or ports@ mailing lists, or from me.</p>
 <p>For GCC, you can patch the GCC ports files and rebuild GCC to create
 new package files for OpenMP.  (The patch adds .h and library
 files for OpenMP to the packages).  Use
-<a href="https:gcc830.patch" title="patch">this</a> patch file:</p>
+<a href="https:gcc840.patch" title="patch">this</a> patch file (valid for OpenBSD 6.8):</p>
 
 <pre><code>doas pkg_add xz bison gmake gmp libexecinfo
 doas pkg_add libmpc mpfr
 
-cd /usr/ports/lang/gcc
-patch &lt; path/to/gcc830.patch
+cd /usr/ports/lang/gcc/8
+patch &lt; path/to/gcc840.patch
 env FLAVOR="no_ada" make package
-doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/6.5/package/amd64/all \
+doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/6.8/package/amd64/all \
     pkg_add -u gcc-libs gcc g95 g++
 </code></pre>
 
-<p>This recompiles the three packages gcclibs, gcc, g95, and installs them.</p>
+<p>This recompiles the four packages gcclibs, gcc, g++, g95, and installs them.</p>
 
 <p>Note: There is no support for this configuration.  Do not expect help
 from the misc@ or ports@ mailing lists, or from me.</p>

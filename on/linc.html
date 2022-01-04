@@ -1,0 +1,235 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experience with Clear Linux</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+<link rel="canonical" href="https://j-bm.github.io/on/linc.html">
+</head>
+<body></p>
+
+<p><img src="media/clearlinux.png" title="Clear Linux" alt="Clear Linux" /></p>
+
+<h1>Experience with Clear Linux</h1>
+
+<p>Another likely candidate is Clear Linux, a distribution supported
+by Intel Corporation.  They clearly have a useful agenda: make Intel
+processors look good with Linux.  And they succeed.</p>
+
+<h2>Clear Linux - the first reading</h2>
+
+<p>The documentation on the front page seemed promising, as it gives
+several use-cases and lists of available software.</p>
+
+<p>It has a marketing feel: a list of features (as opposed to technologies)
+which includes &ldquo;stateless&rdquo; twice, customizable, and &ldquo;Intel optimized&rdquo;.</p>
+
+<p>Unstated, but implied, is that this is more of a &ldquo;corporate-friendly&rdquo;
+distro that should see little friction in corporate environments.  The
+stateless part is a strong piece of that.</p>
+
+<h3>Clear Linux Documentation</h3>
+
+<p>The documents include Guides, Tutorials, and References.  Like Python
+documentation, there is a clear distinction amongst these.</p>
+
+<p>Guides include: Bundles, Kernels, and what Stateless means.  Additional
+Guides cover lifecycle, networking, and typical deployment stacks like
+database, deep learning, or high-performance computing (HPC).</p>
+
+<p>Tutorials cover easy, moderate and difficult topics like setting up
+a LAMP stack, HPC cluster, or Kubernetes cluster.  These all assume
+you have Clear Linux already installed.</p>
+
+<p>The guide Download-Verify-Decompress describes the various tailored
+images, including the VMware .vmdk file that I used.</p>
+
+<p>An important distinction here: <em>the documents are accurate.</em> That&rsquo;s very important.</p>
+
+<h3>Clear Linux Bundles</h3>
+
+<p>The big difference, and a significant advantage, is the bundle concept.</p>
+
+<blockquote><p><em>Each bundle contains as many or as few open source projects needed to provide a complete functionality.</em></p></blockquote>
+
+<p>This is a very big deal as it eliminates a lot of cross-RPM compatibility
+issues &ndash; instead, Intel and the Clear Linux developers select the
+compatible RPMs and &ldquo;bundle&rdquo; them.  The functionality just works.</p>
+
+<p>One of the downsides is the relative invisibility (in search tools or
+the <a href="https://clearlinux.org/software">bundle web site</a>) of developer bundles.  And
+as mentioned below, some bundles are too small.</p>
+
+<h3>Clear Linux Hardware Support</h3>
+
+<p>There is a clear statement of the minimum CPU requirement at
+<a href="https://docs.01.org/clearlinux/latest/guides/clear/performance.html#aggressive-compiler-flags" title="Aggressive Compiler Flags">Compiler Flags</a>
+and this is Westmere CPUs (available in 2010) and tuning for Haswell architecture.</p>
+
+<p>A slightly more detailed description is at
+<a href="https://docs.01.org/clearlinux/latest/reference/system-requirements.html" title="System Requirements">System Requirements</a></p>
+
+<p>Nobody else does this.</p>
+
+<h2>Clear Linux Assumptions</h2>
+
+<p>The OS can run containers, or any of the popular (and bundled) GLIBC
+software items like Python, virtualization hypervisors, Kubernetes, etc.</p>
+
+<p>In short it&rsquo;s general purpose.</p>
+
+<p>Also, in the corporate-support sense, it has valid configurations out-of-the
+box (<code>/etc</code> is mostly empty) and a reset is accomplished by emptying /etc
+and /var.</p>
+
+<h2>Clear Linux is Basic</h2>
+
+<p>Out of the box you get a user account.
+And that&rsquo;s all.</p>
+
+<p>The root password and user passwords <em>have</em> to be high-quality.  The user
+is configured from some questions.  Then you add bundles with <code>sudo</code>.</p>
+
+<p>To even search for bundles, you need to add a bundle!</p>
+
+<h2>Clear Linux installation</h2>
+
+<p>Install by booting the media, and answer questions.</p>
+
+<p>((tbd))</p>
+
+<p>After boot, wait up to two minutes for the <code>swupd</code> tool to update the
+operating system.  Meanwhile you can&rsquo;t use <code>swupd</code> until it is finished.</p>
+
+<p>Then,</p>
+
+<pre><code>touch .vimrc   ### needed to avoid a constant vi message
+
+export PYTHONWARNINGS="ignore::DeprecationWarning"
+
+sudo swupd autoupdate --disable   ### I like stability
+swupd search matplotlib           ### bundle search needs:
+sudo swupd bundle-add os-core-search
+swupd search matplotlib
+
+sudo hostnamectl set-hostname clearbox
+</code></pre>
+
+<h2>Clear Linux applications</h2>
+
+<p>There is a website with a list of packages, divided into &ldquo;bundles&rdquo; (meaning
+officially supported) and
+&ldquo;flatpak&rdquo; packages.</p>
+
+<p><a href="https://clearlinux.org/software" title="Clear Linux Bundles">Clear Linux Bundles</a> is
+the website.  It&rsquo;s quick, and automatically does wildcards
+(such as searching for Fortran, for which you type <code>fortran</code> in the search box).</p>
+
+<p>Clear Linux also supports the <a href="https://flatpak.org/" title="Flatpak">Flatpak</a>
+package installation mechanism, so you get a wide variety of available
+applications.</p>
+
+<p>Add a bundle with</p>
+
+<pre><code>sudo swupd bundle-add c-basic
+
+sudo swupd bundle-add devpkg-fftw
+
+sudo swupd bundle-add vim-minimal
+sudo swupd bundle-add python-extras
+sudo swupd bundle-add openmpi
+sudo swupd bundle-add machine-learning-basic
+sudo swupd bundle-add git
+sudo swupd bundle-add devpkg-gsl
+sudo swupd bundle-add wget
+
+sudo swupd bundle-add devpkg-openmpi
+</code></pre>
+
+<p>Notice the last bundle &ndash; you have to add <em>two</em> OpenMPI bundles
+to compile and run an MPI program.</p>
+
+<p>For X11</p>
+
+<pre><code>sudo swupd bundle-add devpkg-libX11 x11-server x11-tools
+</code></pre>
+
+<p>For building <code>cwm</code> myself I needed:</p>
+
+<pre><code>sudo swupd bundle-add x11-tools x11-server devpkg-libX11
+sudo swupd bundle-add devpkg-libXft    ### fonts
+</code></pre>
+
+<p>(The <code>devpkg-libXft</code> was a real nuisance to find.  Why is it not
+in <code>devpkg-libX11</code>?
+Why can&rsquo;t you find it on the website?)</p>
+
+<p>Then download and build the portable cwm tarfile:</p>
+
+<pre><code>curl -OL https://leahneukirchen.org/releases/cwm-6.7.tar.gz
+tar xzf cwm-6.7.tar.gz
+cd cwm/cwm-6.7/
+make -e PREFIX=$HOME install
+</code></pre>
+
+<h2>Porting complaints</h2>
+
+<p>As seems to be typical with many operating systems, finding what
+you need to install to do task X or Y seems to be most of the effort.
+Especially compared to <code>./configure; make</code>.</p>
+
+<p>See my above example with Xft.</p>
+
+<p>The search command doesn&rsquo;t do much more than a &ldquo;Do you feel lucky&rdquo; search.
+If the first result doesn&rsquo;t work for you, the occasional second or third
+won&rsquo;t either.  Example,</p>
+
+<pre><code>swupd search X11
+Bundle with the best search result:
+    feh     - Fast X11 image viewer, managed via command-line.
+
+This bundle can be installed with:
+
+    swupd bundle-add  feh
+
+Alternative bundle options are
+    gnuplot  - Graphing utility that outputs to X11, PostScript, PNG, GIF, and others.
+    simplescreenrecorder     - A feature-rich screen recorder that supports X11 and OpenGL.
+    x11-server               - Provide a functional X11 Server (Xorg or wayland-based). (installed)
+</code></pre>
+
+<p>Nope, that doesn&rsquo;t do it for me.</p>
+
+<p>I really miss a <a href="https://man.openbsd.org/man1/pkg_locate.1"><code>pkglocate</code></a> tool.</p>
+
+<h2>Speed</h2>
+
+<p>This one is very fast to reboot.  It&rsquo;s like a few seconds.  It&rsquo;s an example
+of <code>systemd</code> at work.</p>
+
+<p>Except, it takes a while longer before it accepts SSH logins.</p>
+
+<p>I don&rsquo;t have usable performance comparisons (using a VM means measurements
+are not repeatable).  See <a href="https://www.phoronix.com/" title="Phoronix">Phoronix</a> for
+Linux and BSD performance comparisons and benchmarks.</p>
+
+<h3>Conclusion</h3>
+
+<p>Clear Linux has the stability, apparent performance, diversity of applications
+and capacity for ease of development.  So I&rsquo;m going to stick with this
+for a while, for those times when running things on OpenBSD isn&rsquo;t possible.</p>
+
+<p>January 2022</p>
+
+<p><br></p>
+
+<hr />
+
+<p><a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a> |
+<a href="li.html" title="My Linux Experience">My Linux Experience</a> |
+<a href="lina.html" title="Experience with Alpine Linux">Experience with Alpine Linux</a> |
+<a href="linc.html" title="Experience with Clear Linux">Experience with Clear Linux</a></p>
+
+<script data-goatcounter="https://93ff62b00d7de509ff88f53b.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+
+
+<p></body></p>

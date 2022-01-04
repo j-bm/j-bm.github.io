@@ -1,0 +1,241 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experience with Alpine Linux</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+<link rel="canonical" href="https://j-bm.github.io/on/lina.html">
+</head>
+<body></p>
+
+<p><img src="media/120px-Alpine_Linux.svg.png" title="Alpine Linux" alt="Alpine Linux" />
+<img src="media/40px-Nix_snowflake.png" title="Nix" alt="Nix Linux" /></p>
+
+<h1>Experience with Alpine Linux (and some Nix)</h1>
+
+<p>After a good day spent researching various Linux distributions using the
+very useful and very reliable
+<a href="https://www.distrowatch.com/" title="Distrowatch">Distrowatch</a>
+site, I settled
+on exploring Alpine Linux.</p>
+
+<h2>Alpine - the first reading</h2>
+
+<p>Well, the documentation on the front page seemed promising, as it gave
+several use-cases for Alpine and pointed out several install images
+to choose from.  My Linux machine was to be a VMware Workstation VM
+hosted on Windows 10.  Alpine actually had a virtualized install package
+for that.  Points for them.</p>
+
+<p>But the
+<a href="https://docs.alpinelinux.org/user-handbook/0.1a/index.html" title="User Handbook">User Handbook</a>
+was labelled version 0.1.  Hmmm, this might not
+be so good.</p>
+
+<p>The first few sections (Introduction, selecting the installation medium,
+and booting) are fairly well written.  The expected audience knowledge
+seems to vary widely, from novice to experienced (for example, knowing
+what a kernel boot option is).</p>
+
+<p>Where the handbook falls down seriously is in the &ldquo;Automatic&rdquo; installation
+instructions.  Where to begin?  There is so much wrong with this section:</p>
+
+<ul>
+<li>it is not an automated install, but a scripted (manual) install</li>
+<li>the &ldquo;quick&rdquo; script option is described first, which is fine, but
+confuses the reader by not clearly stating why you would choose it.</li>
+<li>the &ldquo;complete&rdquo; script option is not defined; instead the document
+describes what is <em>not</em> included in the &ldquo;quick&rdquo; option.  I had to read this
+several times to understand what was being said.</li>
+<li>after the &ldquo;complete&rdquo; option is &ldquo;undescribed&rdquo;, the &ldquo;Full setup Alpine&rdquo;
+section describes when you would use it
+which seems to fully cover the &ldquo;quick&rdquo; mode.  Why so late on the page?</li>
+<li>the table of contents calls it &ldquo;Slower Mode&rdquo; but the document reads
+as &ldquo;Full setup Alpine&rdquo;.  There are several mismatches like this throughout.</li>
+</ul>
+
+
+<p>Clear? I thought not.</p>
+
+<p>The Semi-Automatic section describes in detail how to select
+options for keyboard, hostname, networking etc.  This seems mostly correct.</p>
+
+<p>But only after reading a few of these, and examining the setup-alpine script
+itself, did I realize there are a number of setup-xxx scripts for each
+topic.  Duh.  But why not say so?</p>
+
+<p>Eventually I got the networking corrected and the system rebooted.</p>
+
+<p>When trying to get Xwindows running, the unhelpful doc says if you
+don&rsquo;t like lxdm,</p>
+
+<blockquote><p><em>In case you want a different DE or DM, you should install those now.</em></p></blockquote>
+
+<p>And, what are the options?  No word.  (There is a list on the
+<a href="https://wiki.alpinelinux.org/wiki/Tutorials_and_Howtos#Desktop_Environment" title="Alpine Desktop Environment">Alpine Desktop Environment</a> wiki.)</p>
+
+<h2>Alpine assumptions</h2>
+
+<p>The primary purpose seems to be running containers, and not so much running
+software.  That&rsquo;s perfectly fine: know your customer!</p>
+
+<p>The base system is adequately small (see my list of requirements) and reboots
+very quickly.</p>
+
+<p>Alpine is based on the MUSL library instead of GLIBC.  What this means in the
+end is that not all software will necessarily build correctly (MUSL is not
+pin-for-pin compatible with GLIBC).</p>
+
+<p>See <a href="https://musl-libc.org/faq.html" title="MUSL FAQ">MUSL for GLIBC</a> for a description of MUSL and what it might mean for you.</p>
+
+<p>The <em>other</em> big difference is use of busybox instead of GNU command-line
+utilities.  This becomes obvious when you try additional options for top,
+ls, ps and so on.  And they aren&rsquo;t there.</p>
+
+<p>See <a href="https://www.busybox.net/" title="BusyBox">BusyBox</a> website for details.</p>
+
+<h2>Alpine is very basic</h2>
+
+<p>Out of the box you get a root account.  And a few packages pre-installed.
+And that&rsquo;s all.</p>
+
+<p>To make it useful, add users and setup groups in a way most other Linux
+distros will automate.  This is not a bad thing, it&rsquo;s just what it is:</p>
+
+<pre><code>addgroup -g 1000 dobby
+adduser -h /home/dobby -g 1000 -S -s /bin/sh dobby
+addgroup dobby video
+addgroup dobby input
+addgroup dobby audio
+addgroup dobby cdrom
+</code></pre>
+
+<p>And repeat for other user accounts as needed.</p>
+
+<h2>Alpine package management</h2>
+
+<p>There is a website with a list of packages, divided into &ldquo;main&rdquo; (meaning
+officially supported) and
+&ldquo;community&rdquo; packages.</p>
+
+<p><a href="https://pkgs.alpinelinux.org/packages" title="Alpine Packages">Alpine Packages</a> is
+the website.  It&rsquo;s quick, has multiple choices to select where to look
+for something (such as Fortran, for which you type <code>*fortran*</code> in the search box).</p>
+
+<p>Add a package with <code>apk</code>, as in</p>
+
+<pre><code>apk add curl rsync doas doas-doc
+apk add xf86-video-intel
+apk add mandoc mandoc-doc cwm cwm-doc
+apk add xterm lxterminal freeglut-dev lxterminal font-space-mono-nerd
+apk add xset xcalc util-linux alpine-sdk zlib-dev
+
+apk add ttf-dejavu
+fc-cache -f -v \
+    /usr/share/texmf-dist/fonts/truetype/google \
+    /usr/share/texmf-dist/fonts/truetype/public
+</code></pre>
+
+<p>(which represents the total value of several days of exploring how
+to locate and install packages to do what I wanted.  In this case,
+running <code>cwm</code> window manager and porting the mangl manpage viewer).</p>
+
+<h2>Can&rsquo;t run</h2>
+
+<p>As seems to be typical with many operating systems, finding what
+you need to install to do task X or Y seems to be most of the effort.
+Especially compared to <code>./configure; make</code>.</p>
+
+<p>In the end, the list of missing packages, and the MUSL library
+results in some difficulties getting things to just work.</p>
+
+<p>For example, Julia didn&rsquo;t work, despite having a MUSL version.</p>
+
+<h2>Nix</h2>
+
+<blockquote><p>We are not here to rescue you, but you will not die in vain.</p>
+
+<p>&ndash;Capt Kirk</p></blockquote>
+
+<p>I tried the Nix layer for apps.  Nix rewrites your <code>PATH</code> variable
+and provides individually self-consistent packages.  These are
+buried in a large complex directory structure in your home or
+a system directory.</p>
+
+<p>The only cost is disk space for all those files; not really a big
+deal these days.</p>
+
+<p>The &ldquo;new&rdquo; Nix utility suite is a rewrite of prior versions. (The
+documentation made several apologies for possible issues.) I tried
+version 2.5.1 (I think it was):</p>
+
+<pre><code>curl -o t.t -L  https://nixos.org/nix/install
+vi t.t      ## no changes
+sh t.t
+</code></pre>
+
+<p>takes a long time, 15 minutes, about 400MB RAM, 1.5GB virtual memory.</p>
+
+<pre><code>. .nix-profile/etc/profile.d/nix.sh
+</code></pre>
+
+<p>This auto-updates your .profile/etc/profile</p>
+
+<p>You must comment out the .profile stuff for other managers
+(spack*/ and .local/).  An example very simple install is:</p>
+
+<pre><code>nix-env -i hello
+</code></pre>
+
+<p>This takes a long time, 15 minutes, but downloads a lot of prerequisites.  An
+example installation of Python SciPy is:</p>
+
+<pre><code>nix-env -iA nixpkgs.python39Packages.scipy
+</code></pre>
+
+<p>is pretty quick for determining additional prerequisites and a 50MB download.
+<em>But then I tried search:</em></p>
+
+<pre><code>nix search nixpkgs lapack
+</code></pre>
+
+<p>This copies a 27MB tar file, then a memory leak overloads memory and
+the command does not complete.</p>
+
+<p>I gave up on Nix.</p>
+
+<h3>Conclusion</h3>
+
+<p>Alpine had promise as a relatively small and simple Linux distro.  But
+the issues around documentation lead me to think that developers are interested
+in their own vision of code construction but have no time for documentation.
+The wiki has a lot of HowTos and Tutorials.  But there is no documentation
+in the form of a manpage or <em>complete</em> list of Alpine-specific scripts.</p>
+
+<p>Nobody is doing any objective documentation reviews.  For example,
+putting the UEFI description in a list of Post-installations tasks is
+just plain wrong.</p>
+
+<p>Adding other layers or building own software just didn&rsquo;t work, largely due
+to the MUSL lib.  A GLIBC version of Alpine, plus adequate documentation,
+would be a useful thing.</p>
+
+<p>And Nix.  A memory leak on package search? Really?</p>
+
+<p>Both of these groups are <em>failing to see their projects with the
+eyes of their users.</em>  Documentation and testing cannot be afterthoughts.</p>
+
+<p>November 2021</p>
+
+<p><br></p>
+
+<hr />
+
+<p><a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a> |
+<a href="li.html" title="My Linux Experience">My Linux Experience</a> |
+<a href="lina.html" title="Experience with Alpine Linux">Experience with Alpine Linux</a> |
+<a href="linc.html" title="Experience with Clear Linux">Experience with Clear Linux</a></p>
+
+<script data-goatcounter="https://93ff62b00d7de509ff88f53b.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+
+
+<p></body></p>

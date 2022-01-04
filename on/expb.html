@@ -1,0 +1,260 @@
+<p><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiences with Numerics on OpenBSD - B - ParaView</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+<link rel="canonical" href="https://j-bm.github.io/on/expb.html">
+</head>
+<body></p>
+
+<h1>Experiences with Numerics on OpenBSD - B - ParaView</h1>
+
+<p>After the trials with VTK (see <a href="expa.html" title="A - Graphical Display">A - Graphical Display</a>)
+I basically gave up, until I saw a posting from Kitware announcing a new release
+of ParaView, version 5.9.</p>
+
+<p>Since the work with VTK had issues with Python 3.7, but the new ParaView would
+hopefully work with Python 3.8 as available on OpenBSD, I thought to give
+it a try.</p>
+
+<h3>What is ParaView</h3>
+
+<p>This is a &ldquo;thick-client&rdquo; &ldquo;multi-paradigm&rdquo; &ldquo;3D-&rdquo; and &ldquo;2D-&rdquo; and &ldquo;animation&rdquo; viewer
+for science and engineering data.</p>
+
+<p>OK, but what is it really?</p>
+
+<p>ParaView gives you selectivity on a multi-valued dataset (such as pressure,
+temperature, flows in a 3D space).  You choose &ldquo;pressure&rdquo; for display
+in a 3D space, then
+rotate the resulting scene so you can see where pressure varies.  Pressure
+is colour-coded so you can see high- and low-pressure regions.</p>
+
+<p>Then you change from pressure to velocity and see a different view.</p>
+
+<p>Mostly, the data originates from simulations generated from
+3D modelling software such as OpenFOAM, Ansys, weather simulators, and
+so on.</p>
+
+<p>ParaView has it&rsquo;s own data structures as well as supporting the native
+formats for dozens of engineering and scientific software packages.  This is based
+on the VTK visualization system and uses the VTK data format.</p>
+
+<p>A short description of the VTK data format is: an XML file with embedded
+binary (or base64-coded) data describing points in space, an optional
+set of links between the points which describes a 2D triangular
+mesh or sets of 3D tetrahedrals,
+and values such as pressure, temperature, velocity etc at each point or
+tetrahedral.</p>
+
+<p>Look at the <a href="https://paraview.org" title="ParaView Home page">Paraview website</a> for
+example images.</p>
+
+<h3>Building ParaView</h3>
+
+<p>The download is not small, about 63MB of xz-compressed C++ and C code.  It
+takes about as long as you can imagine, or perhaps longer, to compile.</p>
+
+<p>Being so big, it has many many compile options.  My prior experience analyzing
+the VTK code helped out here.  There were several issues:</p>
+
+<ul>
+<li>fetching the source: in the end I just bailed and required a manual download</li>
+<li>VTK includes many third-party libraries: which should be used?</li>
+<li>which category, X11 or math or graphics?</li>
+<li>it relies on Qt version 5 which coincidentally was just updated
+on OpenBSD by Rafael Sadowsky, without which this wouldn&rsquo;t work.</li>
+<li>my usual confusion about WANTLIB and LIB_DEPENDS</li>
+<li>and a very difficult bug/issue with shared objects: more on this later.</li>
+</ul>
+
+
+<p>The third-party library analysis was directly useful; five items needed
+to be used from OpenBSD ports or base to make it work (jpeg, lz4,
+png, tiff and glew).</p>
+
+<p>The category was easy, x11, with a secondary of graphics.</p>
+
+<p>The Qt version and related libraries took a bit of iteration, as Qt has
+several names for the same things and sometimes embeds some named
+features into a common library.  The Makefile has these figured out.</p>
+
+<p>The WANTLIB and LIB_DEPENDS / RUN_DEPENDS was determined by porting
+tools, again after some iterations.</p>
+
+<p>For the result, see my posting at <a href="https://marc.info/?l=openbsd-ports&amp;m=161367923419324&amp;w=2" title="New: x11/paraview">New: x11/paraview</a>
+on @ports.</p>
+
+<h3>The shared-object issue</h3>
+
+<p>Paraview is well-integrated with Python (version 3.8). It defines a separate
+python instance (&ldquo;pvpython&rdquo;) with access to numerous ParaView and VTK
+python modules, most
+of which are implemented in C++.</p>
+
+<p>As usual with python, the python integration code and related shared libraries are
+located at <code>/usr/local/lib/python3.8/site-packages/paraview/</code>.</p>
+
+<p>The relevent shared objects are located in <code>paraview/modules/</code> and
+are named *.so under the <code>site-packages/paraview</code> directory.</p>
+
+<p>However, ParaView itself is also composed of a large number of standard
+shared object files, located in <code>/usr/local/lib</code>.  Thus there are many
+shared objects delivered in a ParaView build.</p>
+
+<p>When you look these over, many of the python shared objects
+have similar names to the ParaView shared
+objects at /usr/local/lib/.  For example,
+<code>vtkRemotingApplication.so</code> for python and
+<code>libvtkRemotingApplication.so.0.0</code> in <code>/usr/local/lib</code>.</p>
+
+<p>So why is this an issue?  It has to do with how Paraview is built (with
+cmake), and how OpenBSD manages shared-library versions to suit
+itself, rather than the arbitrary and unpredictable version numbering
+of thousands of different package originators.</p>
+
+<p>When OpenBSD compiler tools (including cmake, which is modified for OpenBSD)
+create a shared object, they use linker options to change the version number
+from whatever is defined by the original source file.  The OpenBSD-specific
+version is given
+in the SHARED_LIBS symbol in the Makefile.</p>
+
+<p>When the shared object name matches a name in the SHARED_LIBS list
+(found in the port Makefile), the shared
+object version number is modified.  The expectation is this file will
+appear in /usr/local/lib (or a subdirectory), and so it is created with
+trailing .so.NN.MM version numbers from the SHARED_LIBS
+list.</p>
+
+<h3>The mutual-basenames fix</h3>
+
+<p>The ParaView python modules <code>.so</code> have the same basename as the ParaView shared
+objects <code>.so.NN.MM</code>.  This is unusual: I haven&rsquo;t found any other python package in
+OpenBSD ports or other linux distributions that duplicates names this way.
+Usually the python modules have names distinct from any shared objects.</p>
+
+<p>As a result, uniquely for OpenBSD, the python module shared objects
+are renamed and
+versioned by the modified cmake tools.   And this breaks the pvpython
+tools &ndash; they can&rsquo;t find <code>site-packages/paraview/xyz.so</code> because it
+has been renamed to <code>xyz.so.0.0</code>.</p>
+
+<p>You might consider this a bug, as OpenBSD cmake is (making the linker) modify
+files that are
+not named <code>libxxxx.so</code>.  The matching algorithm in cmake is quite general;
+rather that post a bugfix I did a workaround.</p>
+
+<p>The Makefile is thus modified to undo the renaming for python modules
+in the vtkmodules
+and paraview modules directories.   This is done by patching
+the cmake_install file. We also adjust
+the softlinks for the same files.</p>
+
+<p>For reference, the cmake patch for OpenBSD is at <a href="https://cvsweb.openbsd.org/ports/devel/cmake/patches/patch-Source_cmGeneratorTarget_cxx" title="patch-Source_cmGeneratorTarget_cxx">cmake patch</a>.</p>
+
+<h3>Other build notes</h3>
+
+<p>The compilation takes about an hour or so on an up-to-date 8-core Ryzen
+with 16GB memory.  (I also built it on a Raspberry Pi 4, but had to
+set it single-threaded compile due to limited memory.  That took a day.)</p>
+
+<p>The limiting factor is compiling xmltools, included with ParaView, which
+requires a huge amount of RAM to build (2+GB).</p>
+
+<h3>Data preparation</h3>
+
+<p>The ParaView-compatible data formats are very application specific.  Since
+I wasn&rsquo;t running any of the relevent tools, I had to adapt the
+data sources I did have
+to what Paraview could read.</p>
+
+<p>The astrophysics package called Arepo generates hdf5 files.  An hdf5 file
+consists of
+named arrays (and scalars) embedded in a single file.  Converting these
+to the .vtu file format took some doing (directly via the
+pvpython program didn&rsquo;t quite work).  Eventually I found the evtk package
+which converts numpy arrays (in turn, created by the python h5py module)
+to VTK compatible files.</p>
+
+<p>As an (abbreviated) example, consider this fragment:</p>
+
+<pre><code>import sys
+import numpy as np
+import h5py
+from evtk.hl import pointsToVTK
+
+fn  = sys.argv[1]
+arepo=h5py.File(fn,"r")
+
+points = arepo["PartType1"]["Coordinates"]
+velocity = arepo["PartType1"]["Velocity"]
+dmdensity = arepo["PartType1"]["DMDensity"]
+
+datadict = {}
+datadict["Velocity"] = arepo["PartType1"]["Velocity"][()]
+datadict["DMDensity"] = arepo["PartType1"]["DMDensity"][()]
+
+ofn="x.vtu"
+pointsToVTK(ofn,
+    np.ravel(points[:,0],order='F'),
+    np.ravel(points[:,1],order='F'),
+    np.ravel(points[:,2],order='F'),
+            data = datadict)
+</code></pre>
+
+<p>The h5py module reads the given .hdf5 file.  This file is something
+like a python dictionary, and is processed the same way, as you can see
+with the points, velocity and dmdensity expressions.</p>
+
+<p>The evtk function <code>pointsToVTK</code> requires some unusual inputs, requiring
+separate x, y and z coordinates (rather than an array of xyz).  Once
+you supply a points array, the data dictionary defines any additional
+scalar values at each point.</p>
+
+<p>A vector definition at each point is also possible.</p>
+
+<p>The result looks something like this:</p>
+
+<p><img src="media/collidinggalaxies.jpg" title="Colliding Galaxies Simulation" alt="Arepo - Galaxy Merger Star Formation example" /></p>
+
+<h3>Conclusion</h3>
+
+<p>Porting big complicated software is not entirely impossible, you just
+need perserverence and some coincident supporting tools.</p>
+
+<p>February 2021/March 2021.</p>
+
+<p><br></p>
+
+<hr />
+
+<p> <a href="exp1.html" title="OpenBSD Numerics Experience - 1 - RNG">OpenBSD Numerics Experience - 1 - RNG</a>
+<br>
+ <a href="exp2.html" title="OpenBSD Numerics Experience - 2 - RNG floats">OpenBSD Numerics Experience - 2 - RNG floats</a>
+<br>
+ <a href="exp3.html" title="OpenBSD Numerics Experience - 3 - FFTW">OpenBSD Numerics Experience - 3 - FFTW</a>
+<br>
+ <a href="exp4.html" title="OpenBSD Numerics Experience - 4 - CAF">OpenBSD Numerics Experience - 4 - CAF</a>
+<br>
+ <a href="exp5.html" title="OpenBSD Numerics Experience - 5 - MPI Networking">OpenBSD Numerics Experience - 5 - MPI Networking</a>
+<br>
+ <a href="exp6.html" title="OpenBSD Numerics Experience - 6 - Memory Models">OpenBSD Numerics Experience - 6 - Memory Models</a>
+<br>
+ <a href="exp7.html" title="OpenBSD Numerics Experience - 7 - Python Image Display">OpenBSD Numerics Experience - 7 - Python Image Display</a>
+<br>
+ <a href="exp8.html" title="OpenBSD Numerics Experience - 8 - RNGs, again">OpenBSD Numerics Experience - 8 - RNGs, again</a>
+<br>
+ <a href="exp9.html" title="OpenBSD Numerics Experience - 9 - Nim">OpenBSD Numerics Experience - 9 - Nim</a>
+<br>
+ <a href="expa.html" title="OpenBSD Numerics Experience - A - Graphical Display">OpenBSD Numerics Experience - A - Graphical Display</a>
+<br>
+ <a href="expb.html" title="OpenBSD Numerics Experience - B - ParaView">OpenBSD Numerics Experience - B - ParaView</a>
+<br>
+ <a href="expc.html" title="OpenBSD Numerics Experience - C - Numerical Debugging">OpenBSD Numerics Experience - C - Numerical Debugging</a>
+<br>
+<a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a>
+<br></p>
+
+<script data-goatcounter="https://93ff62b00d7de509ff88f53b.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+
+
+<p></body></p>

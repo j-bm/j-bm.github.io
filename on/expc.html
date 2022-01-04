@@ -1,0 +1,438 @@
+<p><html lang="en">
+<head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Experiences with Numerics on OpenBSD - C - Numerical Debugging</title>
+<link rel="stylesheet" href="w3.css" media="screen">
+<link rel="canonical" href="https://j-bm.github.io/on/ZZZ.html">
+</head>
+<body></p>
+
+<h1>Experiences with Numerics on OpenBSD - C - Numerical Debugging</h1>
+
+<p>Debugging text-processing code is easy &ndash; you just use a lot of printf()
+and see how well or how badly things turn out.</p>
+
+<p>Numerical codes are different because printf() will print out a number
+but you may have a difficult time deciding if it is the <em>correct</em> number.</p>
+
+<p>I have only a little experience with this issue, so here is a set of basic
+guides on what to look for, and how to find bugs (or, sometimes, numerical
+issues) in the code you are looking at.  It&rsquo;s all that I know (so far).</p>
+
+<p>Note: I&rsquo;m not expecting that you wrote the code you are debugging.  A useful
+principle of software development is to be uncommitted as to the ownership
+of the code.  Maybe you wrote it, but you shouldn&rsquo;t see bugs as a personal
+affront, even, or especially, if someone else is point out bugs in the code.
+Instead, it&rsquo;s more helpful to see bugs as <em>learning experiences</em>.  The
+code is a team effort to compose a very large and perfect text.  All
+team members contribute in their own way with their own skills.</p>
+
+<h3>Sources of code</h3>
+
+<p>Physicists and astrophysicists and others often get their code from github
+or personal web pages.  It&rsquo;s a good place to start when learning how
+to do numerical physics.  Reading what others have done helps you understand
+the state of the art.  Reading what <em>many different people</em> have done helps you
+understand the range of approaches and opinions about how to solve a problem.</p>
+
+<p>Let&rsquo;s examine a typical (anonymized) example (in Fortran):</p>
+
+<pre><code>real function interpolate_kr(kr,ix,iy)
+    implicit none
+    integer(4) ix,iy
+    integer(8) ii,i1,i2
+    real kr,xx,yy,x1,x2,y1,y2
+    i1=1
+    i2=nk
+    do while(i2-i1&gt;1)
+        ii=(i1+i2)/2
+        if(kr&gt;tf(ix,ii)) then
+            i1=ii
+        else
+            i2=ii
+        endif
+    enddo
+    x1=log(tf(ix,i1))
+    y1=log(tf(iy,i1))
+    x2=log(tf(ix,i2))
+    y2=log(tf(iy,i2))
+    xx=log(kr)
+    yy=y1+(y2-y1)*(xx-x1)/(x2-x1)
+    interpolate_kr=exp(yy)
+endfunction
+</code></pre>
+
+<p>What is happening in this code?</p>
+
+<ul>
+<li>The kr value is compared to elements of an external array tf(nn,mm)</li>
+<li>It seems there is a binary search with kr in tf along the second dimension</li>
+<li>The values i1 and i2 (I-One and I-Two) form a range in the tf array</li>
+<li>The interpolation is exponential in form</li>
+<li>The array tf is external and not listed as a parameter to the function</li>
+</ul>
+
+
+<p>How could you prove this routine is correct?  How could you find a bug in
+it that is related to any of the following:</p>
+
+<ul>
+<li>The binary search is correct, or not</li>
+<li>The result depends on the tr array being sorted correctly (binary search needs this)</li>
+<li>The logarithms are never taken of a zero (which results in some kind of error)</li>
+<li>The exponential is not about a number that is too big (another floating point
+error)</li>
+</ul>
+
+
+<p>And so on.  You should be able to describe a couple of other issues with this
+code fragment.</p>
+
+<h3>Troubleshooting the source</h3>
+
+<p>Finding bugs is always about finding issues that are usually obvious once
+they are pointed out.  Finding obvious things is hard because you and
+your team being focussed on either (a) other issues or (b) not seeing what
+is in front of you but seeing what you imagine is correct.</p>
+
+<p>&ldquo;Other issues&rdquo; result in bugs not being fixed because you are either writing
+new code or debugging other code.  Which is fine; it&rsquo;s a big project and
+lots of things need to get done.</p>
+
+<p>Not seeing what is truly there is a human fault (and we all have this).  What
+can be done about this?  The first suggestion is use tools:</p>
+
+<pre><code>grep -w tr interpolate_kr.f90
+</code></pre>
+
+<p>You can do many things here:</p>
+
+<ul>
+<li>count how many times &ldquo;tr&rdquo; is used &ndash; it should be a predictable number
+because it is declared once and used in several known locations thereafter</li>
+<li>verify &ldquo;tr&rdquo; is used correctly and not misspelled as tz or tx or something</li>
+<li>check numbered variables like i1 is not il (I-One and I-Ell).</li>
+<li>check for copy-paste errors</li>
+</ul>
+
+
+<p>How do you check copy-paste errors?  There are typically two reasons
+for copy-paste:</p>
+
+<ul>
+<li>big code fragment is identical in two places (so, verify it is
+indeed identical, but it is better recoded as a function)</li>
+<li>big code fragment is almost identical except for using
+different variable or variables</li>
+</ul>
+
+
+<p>The second suggestion is to check for copy-paste errors
+with the counting trick above, or
+by rearranging the code (even temporarily) to allow you to see the
+similar lines directly above each other:</p>
+
+<pre><code>term_a=svr(i,2)+(svr(j,2)-svr(i,2))*(rr-svr(i,1))/(svr(j,1)-svr(i,1)
+...
+term_b=svz(i,2)+(svz(j,2)-svr(i,2))*(rr-svz(i,1))/(svz(j,1)-svz(i,1)
+</code></pre>
+
+<p>Are these two lines different the way they were intended?</p>
+
+<p>The third suggestion: a code review by another person or persons.  This is
+commonly done in industrial settings and may be a novel idea in an academic
+or research environment.  There are several important things to know about
+code review methods and preparing a team new to the concept.  Search
+the web for some advice, e.g. Wikipedia, Microsoft experiences etc. Note that
+<em>code review</em> is not about finding bugs, it is about making the code <em>better</em>
+in a way that (a) meets the local code layout standard, (b) is clear and
+easily understood, (c) meets quality goals such as numerical accuracy or
+includes self-contained tests, and (d) has agreement amongst the team
+that the code is satisfactory (not necessarily bug-free).</p>
+
+<p>A coding standard might include:</p>
+
+<ul>
+<li>mandatory use of code-formatting tools to standardize indent, brackets,
+spaces, and so on.</li>
+<li>spelling rules for variables, such as CamelCaseValues; absence of numbers
+in variable spellings (forbidding i1, i2, i3); requiring or forbidding
+type codes in names (such as f for float, hence fFlighTimeSeconds); and so on.</li>
+<li>maximum module size in lines</li>
+<li>standard copyright notices</li>
+<li>advice on complicated expressions such as 3D difference equations</li>
+<li>directory structures</li>
+<li>logging features and how to control them</li>
+<li>configuration file names, locations and standardized syntax</li>
+</ul>
+
+
+<h3>Troubleshooting the numbers</h3>
+
+<p>Numeric codes have a number of possible outcomes:</p>
+
+<ul>
+<li>wrong</li>
+<li>NaN</li>
+<li>+infinity</li>
+<li>-infinity</li>
+<li>misleading</li>
+<li>almost correct</li>
+<li>meets scale and accuracy expectations but is completely incorrect</li>
+<li>doesn&rsquo;t meet expectations and yet is completely correct</li>
+<li>doesn&rsquo;t crash</li>
+<li>works</li>
+</ul>
+
+
+<h4>NaN and infinities</h4>
+
+<p>The NaN and infinities can be detected with suitable code inserted
+to check for these.  Here is an example in Nim:</p>
+
+<pre><code>import math, strformat
+
+var
+  a: array[0..2,float] = [1.0, -2.0, 3.3]
+
+# check unit under test
+proc countnan( UUT: openArray[float] ) =
+  for ix, v in UUT:
+    if(classify(v) == fcNan):
+      echo &amp;"array has Nan at {ix}"
+      break
+
+echo "a is a ok"
+countnan(a)
+
+echo "is a ok?"
+for ix, v in a:
+  a[ix] = ln(a[ix])
+countnan(a)
+</code></pre>
+
+<p>For which the result is</p>
+
+<pre><code>$ ./nan
+a is a ok
+is a ok?
+array has Nan at 1
+</code></pre>
+
+<p>Some of the other values you can classify: <code>fcNormal, fcInf, fcNegInf.</code>
+See the documentation for the <code>math</code> module for Nim.</p>
+
+<h4>Checking blocks of code for errors</h4>
+
+<p>But, you say, I may not want to check results all the time. You may want to
+ask your computer to signal errors, or simply record if there are any
+errors (and if there aren&rsquo;t, you can be a little more relaxed.)</p>
+
+<p>The floating point standard allows for software to reset the set of
+faults encountered, and read the current set afterwards.  So you can</p>
+
+<pre><code>import fenv
+...
+
+# clear fp flags; later, detect if exceptions would be raised
+
+var fsave: ptr Tfenv
+fsave = cast[ptr Tfenv](alloc(sizeof(Tfenv)))
+discard feholdexcept(fsave)
+
+... # computations appear here
+
+if fetestexcept(FE_DIVBYZERO + FE_INVALID + FE_OVERFLOW) != 0:
+  echo "divide by 0 or Invalid or Overflow detected"
+</code></pre>
+
+<p>See the documentation for the fenv module for Nim, and man pages
+for <code>feholdexcept</code> for Linux/BSD.</p>
+
+<p>What does this result mean (if you get a divide by 0 or Overflow)? It
+means your code is calculating with invalid numbers.  You need to determine
+where these are introduced, and fix them.  See the example in
+<a href="exp1.html" title="OpenBSD Numerics Experience - 1 - RNG">OpenBSD Numerics Experience - 1 - RNG</a>
+for a narrative about how to detect such issues.</p>
+
+<h4>Simple error reporting</h4>
+
+<p>Lastly, you can insert some testing code that can interrupt your program
+whenever a numerical error appears.  Taking an idea from Gnu Scientific
+Library, define a routine like &ldquo;oopsie&rdquo; as follows:</p>
+
+<pre><code>$ cat oopsie.c
+/* define an extern iff debugging */
+#ifdef DEBUG
+void oopsie(char *s,...){ }
+#endif
+</code></pre>
+
+<p>And, in your main routine:</p>
+
+<pre><code>...
+/* define an extern iff debugging */
+#ifdef DEBUG
+void oopsie(char *s,...);
+#else
+void oopsie(char *s,...){ }
+#endif
+
+int main(){
+int i, j;
+printf("%s\n","this is main.c demonstrating debug printing");
+
+i = rand();
+    if(i&gt; 5) oopsie("i more than 5");
+</code></pre>
+
+<p>With it enabled by the source code flag DEBUG, you can run the code
+in the debugger and break on oopsie; this immediately prints an
+issue message without having to single-step through all your code:</p>
+
+<pre><code>$ gdb ./main
+...
+(gdb) break oopsie
+(gdb) run
+Starting program: /home/jal/debug/a.out
+...
+this is main.c demonstrating debug printing
+...
+Breakpoint 1, oopsie (s=0x9766035d548 "i more than 5") at oopsie.c:4
+4       void oopsie(char *s,...){ }
+</code></pre>
+
+<p>See the message you composed &ndash; it can be anything informative.  And
+no printfs were harmed in the generation of this message.</p>
+
+<pre><code>(gdb) bt
+#0  oopsie (s=0x9766035d548 "i more than 5") at oopsie.c:4
+#1  0x000009766035ea96 in main () at main.c:23
+</code></pre>
+
+<p>And you can see where your code was called with backtrace.</p>
+
+<p>An interesting advantage here is that you can compile with optimizations
+turned on, avoiding other implications of debugging (-O1 recommendations
+to get traceable statements, and so on).  However, you probably need
+to define the <code>-g</code> compiler option to ensure the object file includes
+the oopsie routine name and it&rsquo;s argument name.</p>
+
+<h3>Troubleshooting the formulas</h3>
+
+<p>If your code fairly and accurately represents the mathematical formulas,
+there may still be issues with accuracy and even correctness.</p>
+
+<p>The classic example in floating point is:</p>
+
+<pre><code>x = (1.0 + 1.5e-99) - 1.0
+</code></pre>
+
+<p>What is the result?  Logically it should be 1.5e-99, but is it?</p>
+
+<p>The result could be 0.0 or 1.5e-99, depending on the compiler, compiler options,
+and so on.</p>
+
+<p>The usual advice from numerical books (Hamming, McCracken and Dorn, etc) is
+to avoid subtraction!  How, you say?  Several methods exist:</p>
+
+<ul>
+<li>don&rsquo;t actually avoid subtraction but keep the two addends apart as
+separate values until
+the last possible moment</li>
+<li>only maintain the one value, maintaining a &ldquo;logical&rdquo; subtraction in
+the definition of a variable</li>
+<li>rewrite a formula in a series form where subtractions cancel out
+mathematically, not numerically</li>
+<li>review the values to be sure hidden subtraction (adding positive and
+negative numbers) is not happening</li>
+</ul>
+
+
+<p>Another source of problems we&rsquo;ve seen is rounding: this can change values
+from a valid range, e.g. [0,1) to an unexpected range [0,1], where unity
+is unwanted because it is not valid in
+that situation.</p>
+
+<p>Rounding can be configured
+to occur to the &ldquo;nearest&rdquo; value, &ldquo;towards zero&rdquo;, &ldquo;towards positive values&rdquo;,
+and &ldquo;towards negative values&rdquo;.  Keeping this as a configurable option
+in your code might help you narrow down numerical issues that are otherwise
+hard to find.</p>
+
+<p>Lastly, using the (Fortran) example at the top of the page, we see</p>
+
+<pre><code>x1=log(tf(ix,i1))
+y1=log(tf(iy,i1))
+x2=log(tf(ix,i2))
+y2=log(tf(iy,i2))
+xx=log(kr)
+yy=y1+(y2-y1)*(xx-x1)/(x2-x1)
+interpolate_kr = exp(yy)
+</code></pre>
+
+<p>This is subtraction of logarithms, which is the same as division!  Avoid
+this by changing the formula for yy to use division and logarithm
+like this:</p>
+
+<pre><code>interpolate_kr = tf[y1,i1] * exp(log(tf[iy,i2]/tf[iy,i1])*((xx-x1)/(x2-x1)))
+</code></pre>
+
+<p>And you can avoid taking logarithms of y1, y2.</p>
+
+<h3>Conclusion</h3>
+
+<p>Numbers were the first reason for inventing computers.  Avoiding bugs
+or finding them afterwards is (still) one of the most difficult parts
+of &ldquo;computing numbers&rdquo;.</p>
+
+<p>References:</p>
+
+<p><a href="https://www.gnu.org/software/gsl" title="
+GSL - GNU Scientific Library">GSL - GNU Scientific Library</a></p>
+
+<p><a href="https://store.doverpublications.com/0486652416.html" title="
+Numerical Methods for Scientists and Engineers, RW Hamming, Dover 1987">Numerical Methods for Scientists and Engineers, RW Hamming, Dover 1987</a></p>
+
+<p><a href="https://www.wiley.com" title="
+Numerical Methods and Fortran Programming, Daniel McCracken and William Dorn,
+Wiley, 1964">Numerical Methods and Fortran Programming, Daniel McCracken and William Dorn,
+Wiley, 1964</a></p>
+
+<p>June 2021</p>
+
+<p><br></p>
+
+<hr />
+
+<p> <a href="exp1.html" title="OpenBSD Numerics Experience - 1 - RNG">OpenBSD Numerics Experience - 1 - RNG</a>
+<br>
+ <a href="exp2.html" title="OpenBSD Numerics Experience - 2 - RNG floats">OpenBSD Numerics Experience - 2 - RNG floats</a>
+<br>
+ <a href="exp3.html" title="OpenBSD Numerics Experience - 3 - FFTW">OpenBSD Numerics Experience - 3 - FFTW</a>
+<br>
+ <a href="exp4.html" title="OpenBSD Numerics Experience - 4 - CAF">OpenBSD Numerics Experience - 4 - CAF</a>
+<br>
+ <a href="exp5.html" title="OpenBSD Numerics Experience - 5 - MPI Networking">OpenBSD Numerics Experience - 5 - MPI Networking</a>
+<br>
+ <a href="exp6.html" title="OpenBSD Numerics Experience - 6 - Memory Models">OpenBSD Numerics Experience - 6 - Memory Models</a>
+<br>
+ <a href="exp7.html" title="OpenBSD Numerics Experience - 7 - Python Image Display">OpenBSD Numerics Experience - 7 - Python Image Display</a>
+<br>
+ <a href="exp8.html" title="OpenBSD Numerics Experience - 8 - RNGs, again">OpenBSD Numerics Experience - 8 - RNGs, again</a>
+<br>
+ <a href="exp9.html" title="OpenBSD Numerics Experience - 9 - Nim">OpenBSD Numerics Experience - 9 - Nim</a>
+<br>
+ <a href="expa.html" title="OpenBSD Numerics Experience - A - Graphical Display">OpenBSD Numerics Experience - A - Graphical Display</a>
+<br>
+ <a href="expb.html" title="OpenBSD Numerics Experience - B - ParaView">OpenBSD Numerics Experience - B - ParaView</a>
+<br>
+ <a href="expc.html" title="OpenBSD Numerics Experience - C - Numerical Debugging">OpenBSD Numerics Experience - C - Numerical Debugging</a>
+<br>
+<a href="on.html" title="OpenBSD Numerics">OpenBSD Numerics</a>
+<br></p>
+
+<script data-goatcounter="https://93ff62b00d7de509ff88f53b.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+
+
+<p></body></p>

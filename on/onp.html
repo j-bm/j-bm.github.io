@@ -129,7 +129,8 @@ package, which consists of a single download and a few simple compiles.</p>
 <p>We show how to build and install packages for both static and dynamic libraries.</p>
 
 <p>For OpenBSD 6.8, fetch <a href="https:openmp1001.tar.gz">this</a> and
-<a href="https:stlibomp1001.tar.gz">that</a>.</p>
+<a href="https:stlibomp1001.tar.gz">that</a>.  (The OpenBSD 7.0 fixes are not
+tested yet.)</p>
 
 <p>Unpack these two into /usr/ports/mystuff/lang/.</p>
 
@@ -168,15 +169,15 @@ from the misc@ or ports@ mailing lists, or from me.</p>
 <p>For GCC, you can patch the GCC ports files and rebuild GCC to create
 new package files for OpenMP.  (The patch adds .h and library
 files for OpenMP to the packages).  Use
-<a href="https:gcc840.patch" title="patch">this</a> patch file (valid for OpenBSD 6.8):</p>
+<a href="https:gcc8_obsd70_gomp.patch" title="patch">this</a> patch file (valid for OpenBSD 7.0):</p>
 
 <pre><code>doas pkg_add xz bison gmake gmp libexecinfo
 doas pkg_add libmpc mpfr
 
 cd /usr/ports/lang/gcc/8
-patch &lt; path/to/gcc840.patch
+patch &lt; path/to/gcc8_obsd70_gomp.patch
 env FLAVOR="no_ada" make package
-doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/6.8/package/amd64/all \
+doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/7.0/package/amd64/all \
     pkg_add -u gcc-libs gcc g95 g++
 </code></pre>
 

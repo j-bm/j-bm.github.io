@@ -93,12 +93,46 @@ is configured from some questions.  Then you add bundles with <code>sudo</code>.
 
 <h2>Clear Linux installation</h2>
 
-<p>Install by booting the media, and answer questions.</p>
+<p>Install by booting the media, login as root, and run a script.</p>
 
-<p>((tbd))</p>
+<pre><code>clr-live login:
+</code></pre>
 
-<p>After boot, wait up to two minutes for the <code>swupd</code> tool to update the
-operating system.  Meanwhile you can&rsquo;t use <code>swupd</code> until it is finished.</p>
+<p>Enter root, you will be asked for a high-quality password.</p>
+
+<p>Start clr-installer.  A text-based graphical menu appears.  Fill in the forms for &reg; Required options:</p>
+
+<pre><code># clr-installer
+</code></pre>
+
+<p>(Hint: after changing values, you must tab to the Confirm button.  It requires close
+examination to confirm you have selected Confirm as there are numerous other text
+boxes with the same colour.  This is a poor UI choice.)</p>
+
+<pre><code>Timezone (recommend UTC)
+
+Choose Language (US)
+
+Choose Keyboard  (recommend US)
+
+Select Configure Installation Media (choose Destructive Installation for a single-partition install)
+
+Select Manage User and add a user (this is mandatory; there is no root login permitted)
+
+Configure Telemetry (choose to enable or disable as desired)
+
+Select Install. (Accept the reminder about destroying disk contents.)
+</code></pre>
+
+<p>Install takes about 7.5 minutes (i3 CPU on a VMware VM with SSD).</p>
+
+<pre><code>Select either Reboot or Exit from the clr-installer.
+</code></pre>
+
+<p>After a reboot, automatic update takes about 7 or 8 minutes.  This is done
+by the <code>swupd</code> tool.</p>
+
+<p>Meanwhile you can&rsquo;t use <code>swupd</code> until it is finished.</p>
 
 <p>Then,</p>
 
@@ -107,8 +141,12 @@ operating system.  Meanwhile you can&rsquo;t use <code>swupd</code> until it is 
 export PYTHONWARNINGS="ignore::DeprecationWarning"
 
 sudo swupd autoupdate --disable   ### I like stability
-swupd search matplotlib           ### bundle search needs:
-sudo swupd bundle-add os-core-search
+swupd search matplotlib
+</code></pre>
+
+<p>This search fails, because the following bundles are needed to search:</p>
+
+<pre><code>sudo swupd bundle-add os-core-search
 swupd search matplotlib
 
 sudo hostnamectl set-hostname clearbox

@@ -1,0 +1,103 @@
+? Makefile-
+Index: Makefile
+===================================================================
+RCS file: /cvs/ports/lang/gcc/8/Makefile,v
+retrieving revision 1.49
+diff -u -p -r1.49 Makefile
+--- Makefile	11 Mar 2022 19:28:59 -0000	1.49
++++ Makefile	9 May 2022 00:21:57 -0000
+@@ -16,7 +16,7 @@ DPB_PROPERTIES = parallel
+ V = 8.4.0
+ FULL_VERSION = $V
+ FULL_PKGVERSION = $V
+-REVISION = 11
++REVISION = 12
+ 
+ ADASTRAP-amd64 = adastrap-amd64-8.3.0-2.tar.xz
+ ADASTRAP-arm = adastrap-arm-4.9.4-0.tar.xz
+@@ -39,6 +39,7 @@ SHARED_LIBS =	estdc++		19.0 \
+ 		objc		8.0 \
+ 		lto_plugin      5.0 \
+ 		itm		4.0 \
++		gomp		1.0 \
+ 		atomic		3.0 \
+ 		quadmath	3.0 \
+ 		cc1		1.0 \
+@@ -123,7 +124,6 @@ CONFIGURE_ARGS += \
+ 	--disable-nls  \
+ 	--with-system-zlib \
+ 	--disable-libmudflap \
+-	--disable-libgomp \
+ 	--disable-libssp \
+ 	--disable-tls \
+ 	--with-gnu-ld \
+Index: pkg/PLIST-f95
+===================================================================
+RCS file: /cvs/ports/lang/gcc/8/pkg/PLIST-f95,v
+retrieving revision 1.4
+diff -u -p -r1.4 PLIST-f95
+--- pkg/PLIST-f95	11 Mar 2022 19:28:59 -0000	1.4
++++ pkg/PLIST-f95	9 May 2022 00:21:57 -0000
+@@ -10,6 +10,14 @@ lib/gcc/${CONFIG}/${V}/finclude/
+ lib/gcc/${CONFIG}/${V}/finclude/ieee_arithmetic.mod
+ lib/gcc/${CONFIG}/${V}/finclude/ieee_exceptions.mod
+ lib/gcc/${CONFIG}/${V}/finclude/ieee_features.mod
++lib/gcc/${CONFIG}/${V}/finclude/omp_lib.h
++lib/gcc/${CONFIG}/${V}/finclude/omp_lib.mod
++lib/gcc/${CONFIG}/${V}/finclude/omp_lib_kinds.mod
++lib/gcc/${CONFIG}/${V}/finclude/omp_lib.f90
++lib/gcc/${CONFIG}/${V}/finclude/openacc.f90
++lib/gcc/${CONFIG}/${V}/finclude/openacc.mod
++lib/gcc/${CONFIG}/${V}/finclude/openacc_kinds.mod
++lib/gcc/${CONFIG}/${V}/finclude/openacc_lib.h
+ @static-lib lib/gcc/${CONFIG}/${V}/libcaf_single.a
+ lib/gcc/${CONFIG}/${V}/libcaf_single.la
+ @static-lib lib/libgfortran.a
+Index: pkg/PLIST-libs
+===================================================================
+RCS file: /cvs/ports/lang/gcc/8/pkg/PLIST-libs,v
+retrieving revision 1.3
+diff -u -p -r1.3 PLIST-libs
+--- pkg/PLIST-libs	11 Mar 2022 19:28:59 -0000	1.3
++++ pkg/PLIST-libs	9 May 2022 00:21:57 -0000
+@@ -12,5 +12,7 @@ lib/libobjc.la
+ @lib lib/libobjc.so.${LIBobjc_VERSION}
+ lib/libcc1.la
+ @lib lib/libcc1.so.${LIBcc1_VERSION}
++lib/libgomp.la
++@lib lib/libgomp.so.${LIBgomp_VERSION}
+ %%ITM%%
+ %%QUADMATH%%
+Index: pkg/PLIST-main
+===================================================================
+RCS file: /cvs/ports/lang/gcc/8/pkg/PLIST-main,v
+retrieving revision 1.4
+diff -u -p -r1.4 PLIST-main
+--- pkg/PLIST-main	11 Mar 2022 19:28:59 -0000	1.4
++++ pkg/PLIST-main	9 May 2022 00:21:57 -0000
+@@ -19,6 +19,7 @@
+ @info info/gcc.info
+ @info info/gccinstall.info
+ @info info/gccint.info
++@info info/libgomp.info
+ lib/gcc/
+ lib/gcc/${CONFIG}/
+ lib/gcc/${CONFIG}/${V}/
+@@ -28,6 +29,8 @@ lib/gcc/${CONFIG}/${V}/include-fixed/REA
+ lib/gcc/${CONFIG}/${V}/include-fixed/limits.h
+ lib/gcc/${CONFIG}/${V}/include-fixed/syslimits.h
+ lib/gcc/${CONFIG}/${V}/include/gcov.h
++lib/gcc/${CONFIG}/${V}/include/omp.h
++lib/gcc/${CONFIG}/${V}/include/openacc.h
+ lib/gcc/${CONFIG}/${V}/include/stdalign.h
+ lib/gcc/${CONFIG}/${V}/include/stdatomic.h
+ lib/gcc/${CONFIG}/${V}/include/stdfix.h
+@@ -450,6 +453,8 @@ lib/gcc/${CONFIG}/${V}/plugin/libcc1plug
+ lib/gcc/${CONFIG}/${V}/plugin/libcp1plugin.la
+ @lib lib/gcc/${CONFIG}/${V}/plugin/libcp1plugin.so.${LIBcp1plugin_VERSION}
+ @static-lib lib/libatomic.a
++@static-lib lib/libgomp.a
++lib/libgomp.spec
+ %%aarch64%%
+ %%alpha%%
+ %%amd64%%

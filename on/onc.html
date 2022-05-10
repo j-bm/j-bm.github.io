@@ -37,9 +37,9 @@ abstraction that uses MPI as a basis.   CAF support for a cluster
 requires an additional (unsupported) OpenCoarrays library to be installed.
 CAF support for a single machine is included in the GCC Fortran package.</p>
 
-<h4>OpenBSD and MPI on 6.8</h4>
+<h4>OpenBSD and MPI on OpenBSD 7.1</h4>
 
-<p>OpenBSD version 6.8 includes OpenMPI version 4.0.5 in ports.  This version has
+<p>OpenBSD version 7.1 includes OpenMPI version 4.1.2 in ports.  This version has
 a couple of issues:</p>
 
 <ol>
@@ -59,7 +59,7 @@ ignore these.</li>
 <h3>OpenBSD and MPI and OpenMP</h3>
 
 <p>The SMP capability of cluster members is accessible with OpenMP (as
-described here, and a reminder this is not supported).</p>
+described <a href="https:onp.html">here</a>, and a reminder this is not supported).</p>
 
 <p>Cluster computing is accessible with MPI.  See our examples
 below.</p>
@@ -101,8 +101,8 @@ with the OpenMPI distributed database component &ldquo;gds&rdquo;.</p>
 
 <h4>MPI and OpenMP code example</h4>
 
-<p>Here is an example program showing OpenMPI (parallel threads) and
-OpenMP (distributed processing across multiple nodes).  It computes
+<p>Here is an example program showing OpenMP (parallel threads) and
+OpenMPI (distributed processing across multiple nodes).  It computes
 the same value on most nodes, and a unique value on one.  It then
 prints the total.</p>
 
@@ -176,6 +176,11 @@ OpenMPI is quite sophisticated, and to the uninitiated, opaque and complex.</p>
 <p>Writing code to use MPI or OpenMPI is fairly well described in several places.
 Using OpenMPI to best advantage to run that code is not well described.
 A few hints are given above.</p>
+
+<p>See also the OpenBSD pkg-readme at</p>
+
+<pre><code>/usr/local/share/doc/pkg-readmes/openmpi
+</code></pre>
 
 <p>There is no current architectural description that I could find, not
 since PMIx (a massive scaling feature) was added, anyway.</p>

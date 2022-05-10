@@ -129,10 +129,12 @@ package, which consists of a single download and a few simple compiles.</p>
 <p>We show how to build and install packages for both static and dynamic libraries.</p>
 
 <p>For OpenBSD 6.8, fetch <a href="https:openmp1001.tar.gz">this</a> and
-<a href="https:stlibomp1001.tar.gz">that</a>.  (The OpenBSD 7.0 fixes are not
-tested yet.)</p>
+<a href="https:stlibomp1001.tar.gz">that</a>.</p>
 
-<p>Unpack these two into /usr/ports/mystuff/lang/.</p>
+<p>For OpenBSD 7.1, fetch <a href="https:libomp_obsd71.tgz">this</a> which provides
+both static and dynamic libraries.</p>
+
+<p>For OpenBSD 6.8, unpack these two into /usr/ports/mystuff/lang/.</p>
 
 <pre><code>sysctl kern.version
 ## Verify OpenBSD 6.8
@@ -141,7 +143,7 @@ tar xzf path/to/openmp1001.tar.gz
 tar xzf path/to/stlibomp1001.tar.gz
 </code></pre>
 
-<p>Verify the version 10.0.1 within the Makefile is correct then make it:</p>
+<p>For OpenBSD 6.8, verify the version 10.0.1 within the Makefile is correct then make it:</p>
 
 <pre><code>doas pkg_add ninja cmake xz
 
@@ -159,6 +161,18 @@ doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/6.8/package/amd64/all \
     pkg_add libomp
 </code></pre>
 
+<p>For OpenBSD 7.1, the instructions are similar but shorter:</p>
+
+<pre><code>cd /usr/ports/mystuff/
+tar xzf path/to/libomp_obsd71.tgz
+cd /usr/ports/mystuff/lang/libomp
+clang -v    (compare to V= within Makefile)
+grep VERSION Makefile
+make package
+doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/7.1/package/amd64/all \
+    pkg_add libomp
+</code></pre>
+
 <p>(If you have problems, check file path, ownerships and o:rew permissions).</p>
 
 <p>Note: There is no support for this configuration.  Do not expect help
@@ -169,13 +183,15 @@ from the misc@ or ports@ mailing lists, or from me.</p>
 <p>For GCC, you can patch the GCC ports files and rebuild GCC to create
 new package files for OpenMP.  (The patch adds .h and library
 files for OpenMP to the packages).  Use
-<a href="https:gcc8_obsd70_gomp.patch" title="patch">this</a> patch file (valid for OpenBSD 7.0):</p>
+<a href="https:gcc8_obsd70_gomp.patch" title="patch">this</a> patch file (valid for OpenBSD 7.0)
+and
+<a href="https:gcc8_obsd71_gomp.patch" title="patch">tother</a> patch file (valid for OpenBSD 7.1):</p>
 
 <pre><code>doas pkg_add xz bison gmake gmp libexecinfo
 doas pkg_add libmpc mpfr
 
 cd /usr/ports/lang/gcc/8
-patch &lt; path/to/gcc8_obsd70_gomp.patch
+patch &lt; path/to/gcc8_obsd70_gomp.patch   # or _obsd71_
 env FLAVOR="no_ada" make package
 doas TRUSTED_PKG_PATH=/usr/cache/pub/OpenBSD/7.0/package/amd64/all \
     pkg_add -u gcc-libs gcc g95 g++
